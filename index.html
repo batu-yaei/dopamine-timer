@@ -16,12 +16,11 @@
         
         body {
             font-family: 'Space Grotesk', sans-serif;
-            background-color: #0f172a; /* slate-900 */
-            color: #f8fafc; /* slate-50 */
+            background-color: #0f172a; 
+            color: #f8fafc; 
             overscroll-behavior-y: none;
         }
 
-        /* Scrollbar gizleme (Daha temiz mobil görünüm için) */
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
@@ -30,7 +29,6 @@
             scrollbar-width: none;
         }
 
-        /* Node animasyonları */
         @keyframes pulse-ring {
             0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3); }
             70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
@@ -48,16 +46,14 @@
 
         .numpad-btn:active {
             transform: scale(0.95);
-            background-color: #334155; /* slate-700 */
+            background-color: #334155;
         }
     </style>
 </head>
 <body class="h-screen w-screen flex justify-center overflow-hidden bg-black">
 
-    <!-- Mobile App Container -->
     <div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
         
-        <!-- Header (Stats) -->
         <div class="px-6 py-5 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-20 flex justify-between items-center shadow-sm">
             <div class="flex flex-col">
                 <span class="text-xs text-slate-400 font-semibold tracking-wider uppercase">Toplam Geçen Zaman</span>
@@ -69,38 +65,27 @@
             </div>
         </div>
 
-        <!-- Start Button Area (New) -->
         <div class="px-6 py-3 bg-slate-900 border-b border-slate-800 z-20 flex justify-center shadow-md relative">
             <button id="topStartBtn" class="w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95" onclick="startGlobalTimer()">SÜREYİ BAŞLAT</button>
         </div>
 
-        <!-- Timeline Area -->
         <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-32">
-            <!-- Dikey kesikli çizgi (Dashline) -->
             <div class="absolute left-[51px] top-0 bottom-0 w-0.5 border-l-2 border-dashed border-slate-700 z-0"></div>
-            
-            <!-- Nodes enjekte edilecek alan -->
-            <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full">
-                <!-- JavaScript ile doldurulacak -->
-            </div>
+            <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
         </div>
 
-        <!-- Numpad & Controls (Bottom Panel) -->
         <div class="bg-slate-950 p-5 rounded-t-3xl shadow-[0_-15px_40px_rgba(0,0,0,0.5)] z-20 pb-8 flex flex-col transition-all duration-300">
             
-            <!-- Minimize/Maximize Handle -->
             <button onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none">
                 <svg id="numpadToggleIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
 
             <div id="numpadContent" class="flex flex-col">
-                <!-- Input Display -->
                 <div class="flex items-center justify-between bg-slate-900 rounded-2xl p-4 mb-4 border border-slate-800">
                     <span id="inputDisplay" class="text-4xl font-bold text-slate-300 tracking-widest transition-colors duration-200">0</span>
                     <span class="text-slate-500 font-semibold text-lg">DK</span>
                 </div>
 
-                <!-- Keypad -->
                 <div class="grid grid-cols-3 gap-3">
                     <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(1)">1</button>
                     <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(2)">2</button>
@@ -115,7 +100,6 @@
                     <button class="numpad-btn bg-red-900/30 text-red-400 rounded-2xl py-4 text-xl font-bold transition-transform" onclick="deleteNum()">DEL</button>
                     <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(0)">0</button>
                     
-                    <!-- Dynamic Toggle Add Button -->
                     <button id="toggleAddBtn" class="bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1" onclick="handleAddToggle()">
                         <div class="w-4 h-4 bg-white rounded-md shadow-sm" id="toggleAddShape"></div>
                         <span id="toggleAddText" class="tracking-wide">ÇALIŞMA EKLE</span>
@@ -171,7 +155,6 @@
             totalWorkDisplay.textContent = formatTime(totalWorkSeconds);
         }
 
-        // Numpad Functions
         function updateInputDisplay() {
             if (currentInputValue !== "") {
                 inputDisplay.textContent = currentInputValue;
@@ -189,7 +172,7 @@
         }
 
         function appendNum(num) {
-            if (currentInputValue.length < 4) { // Max 9999 minutes (safety)
+            if (currentInputValue.length < 4) { 
                 currentInputValue += num.toString();
                 updateInputDisplay();
             }
@@ -200,7 +183,6 @@
             updateInputDisplay();
         }
 
-        // New Logic Features
         function toggleNumpad() {
             isNumpadExpanded = !isNumpadExpanded;
             const content = document.getElementById('numpadContent');
@@ -254,17 +236,15 @@
         function handleAddToggle() {
             let minutes = parseInt(currentInputValue, 10);
             
-            // Eğer input boşsa ama önerilen değer varsa onu kullan
             if (isNaN(minutes) || minutes <= 0) {
                 if (suggestedValue !== "") {
                     minutes = parseInt(suggestedValue, 10);
                 } else {
-                    return; // İkisi de yoksa iptal et
+                    return; 
                 }
             }
 
             addNode(nextNodeType, minutes);
-            
             currentInputValue = "";
             recalculateSuggestionState();
         }
@@ -274,7 +254,6 @@
             if (index === -1) return;
 
             const wasActive = (index === activeNodeIndex);
-            
             nodes.splice(index, 1);
 
             if (index < activeNodeIndex) {
@@ -293,32 +272,58 @@
             recalculateSuggestionState();
         }
 
-        // Audio Alert (Web Audio API)
-        function playBeep() {
+        // Web Audio API Custom Sounds
+        function playBeep(type) {
             try {
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
                 
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(600, ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-                
-                gain.gain.setValueAtTime(0, ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
-                
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                
-                osc.start();
-                osc.stop(ctx.currentTime + 1);
+                if (type === 'break') {
+                    // Mola Sesi (Tok ve 2 Tekrarlı)
+                    const playDeepBeep = (startTime) => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        
+                        osc.type = 'sine'; // Tok ses
+                        osc.frequency.setValueAtTime(300, startTime);
+                        
+                        gain.gain.setValueAtTime(0, startTime);
+                        gain.gain.linearRampToValueAtTime(0.6, startTime + 0.05);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.4);
+                        
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        
+                        osc.start(startTime);
+                        osc.stop(startTime + 0.5);
+                    };
+                    
+                    playDeepBeep(ctx.currentTime);
+                    playDeepBeep(ctx.currentTime + 0.5); // İkinci vuruş
+                    
+                } else {
+                    // Çalışma Sesi (Standart Parlak Tek Bip)
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(600, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+                    
+                    gain.gain.setValueAtTime(0, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    
+                    osc.start();
+                    osc.stop(ctx.currentTime + 1);
+                }
             } catch(e) {
                 console.warn("Audio error:", e);
             }
         }
 
-        // Timeline Functions
         function renderTimeline() {
             nodesWrapper.innerHTML = '';
             
@@ -339,14 +344,13 @@
                 el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out ${node.state === 'completed' ? 'completed-node' : ''}`;
                 el.id = `node-${node.id}`;
 
-                // Shape styling
                 let shapeClass = "";
                 let bgClass = "";
                 if (node.type === 'work') {
-                    shapeClass = "rounded-2xl"; // Karemsi
+                    shapeClass = "rounded-2xl"; 
                     bgClass = "bg-indigo-600 shadow-indigo-900/50";
                 } else {
-                    shapeClass = "rounded-full"; // Daire
+                    shapeClass = "rounded-full"; 
                     bgClass = "bg-teal-600 shadow-teal-900/50";
                 }
 
@@ -382,8 +386,7 @@
                 nodesWrapper.appendChild(el);
             });
 
-            // Scroll to active node
-            if (activeNodeIndex !== -1) {
+            if (activeNodeIndex !== -1 && activeNodeIndex < nodes.length) {
                 const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
                 if (activeEl) {
                     activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -409,24 +412,19 @@
                 type: type,
                 duration: minutes * 60,
                 remaining: minutes * 60,
-                state: 'pending' // pending, active, completed
+                state: 'pending'
             };
 
             nodes.push(newNode);
             
-            // Eğer sistem koşuyorsa ve bekleyen başka bir şey yoksa, direkt aktifleştir
-            if (isRunning && activeNodeIndex === -1) {
-                activeNodeIndex = nodes.length - 1;
-                nodes[activeNodeIndex].state = 'active';
-            } else if (isRunning && activeNodeIndex >= nodes.length) {
-                // Önceden tüm liste bitmiş, idle duruma geçilmişse
+            // Eğer sistem koşuyorsa ve süre bittiği için beklemedeyse sıradakini ateşle
+            if (isRunning && activeNodeIndex >= nodes.length - 1) {
                 activeNodeIndex = nodes.length - 1;
                 nodes[activeNodeIndex].state = 'active';
             }
 
             renderTimeline();
             
-            // Kullanıcı etkileşimi olduğu için AudioContext'i kilitten çıkaralım (iOS Safari için)
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             if(ctx.state === 'suspended') ctx.resume();
         }
@@ -434,25 +432,26 @@
         function startGlobalTimer() {
             if (isRunning) return;
             
+            if (nodes.length === 0 || activeNodeIndex >= nodes.length) {
+                return; // Başlatılacak eleman yok
+            }
+
             isRunning = true;
             
-            // UI Güncelleme (Start butonunu pasifleştir/gizle)
             topStartBtn.classList.replace('bg-emerald-600', 'bg-slate-700');
             topStartBtn.classList.replace('text-white', 'text-slate-500');
             topStartBtn.textContent = 'AKIŞTA';
             topStartBtn.disabled = true;
 
-            // Eğer eklenti varsa ilkini aktif yap
-            if (nodes.length > 0 && activeNodeIndex === -1) {
+            if (activeNodeIndex === -1) {
                 activeNodeIndex = 0;
                 nodes[activeNodeIndex].state = 'active';
                 renderTimeline();
             }
 
             globalInterval = setInterval(() => {
-                totalElapsedSeconds++;
-                
                 if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+                    totalElapsedSeconds++;
                     let currentNode = nodes[activeNodeIndex];
                     
                     if (currentNode.type === 'work') {
@@ -464,23 +463,25 @@
 
                     if (currentNode.remaining <= 0) {
                         currentNode.state = 'completed';
-                        playBeep();
+                        playBeep(currentNode.type);
                         
-                        // Sonrakine geçiş
                         activeNodeIndex++;
                         if (activeNodeIndex < nodes.length) {
                             nodes[activeNodeIndex].state = 'active';
+                        } else {
+                            // Bütün düğümler bittiğinde sayacı durdur
+                            isRunning = false;
+                            clearInterval(globalInterval);
+                            
+                            topStartBtn.classList.replace('bg-slate-700', 'bg-emerald-600');
+                            topStartBtn.classList.replace('text-slate-500', 'text-white');
+                            topStartBtn.textContent = 'SÜREYİ BAŞLAT';
+                            topStartBtn.disabled = false;
                         }
-                        // Tam render ile görsel sınıfları (pulse vs) ve scroll'u güncelle
                         renderTimeline(); 
                     }
-                } else {
-                    // Liste bitti ama asla durmayacak demiştik. Total timer işlemeye devam ediyor.
-                    // İsterse boşta iken yeni blok ekleyebilir (addNode yakalayacaktır).
+                    updateDisplays();
                 }
-
-                updateDisplays();
-
             }, 1000);
         }
 
