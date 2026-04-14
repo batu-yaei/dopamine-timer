@@ -1,15 +1,21 @@
 // sw.js — Dopamine Timer Service Worker
-const CACHE = 'dopamine-v1';
-const ASSETS = ['./index.html'];
+const CACHE = 'dopamine-v2';
+const ASSETS = [
+    './',
+    './index.html',
+    './manifest.json',
+    './icon-192.png',
+    './icon-512.png'
+];
 
 self.addEventListener('install', e => {
+    self.skipWaiting();
     e.waitUntil(
-        caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+        caches.open(CACHE).then(c => c.addAll(ASSETS))
     );
 });
 
 self.addEventListener('activate', e => {
-    // Eski cache versiyonlarını temizle
     e.waitUntil(
         caches.keys().then(keys =>
             Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
@@ -18,18 +24,16 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-    // Sadece same-origin GET isteklerini cache'le
     if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) return;
     e.respondWith(
         caches.match(e.request).then(cached => {
-            // Cache varsa kullan, yoksa network'ten al ve cache'e ekle
             const networkFetch = fetch(e.request).then(response => {
                 if (response && response.status === 200) {
                     const clone = response.clone();
                     caches.open(CACHE).then(c => c.put(e.request, clone));
                 }
                 return response;
-            }).catch(() => cached); // Network yoksa cache'e düş
+            }).catch(() => cached); 
             return cached || networkFetch;
         })
     );
