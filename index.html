@@ -165,7 +165,6 @@
     </div>
 
     <!-- TIMELINE -->
-    <!-- p-6 is applied dynamically via JS to add padding-bottom only when numpad is open -->
     <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative transition-all duration-300">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
@@ -592,12 +591,14 @@ function setNumpadState(open) {
     const wasOpen = numpadOpen;
     numpadOpen = open;
     const contentHeight = numpadContent.offsetHeight;
+    const wrapperHeight = numpadWrapper.offsetHeight;
     
-    // Panel açıkken timeline dibine 475px boşluk (padding) uygula, kapalıysa normal değerine (p-6 = 24px) döndür
+    // Sabit piksel padding yerine, tuş panelinin gerçek dom yüksekliğini
+    // okuyarak timeline'ın alt sınırını dinamik olarak hizalıyoruz.
     if (open) {
-        timelineContainer.style.paddingBottom = '475px';
+        timelineContainer.style.marginBottom = wrapperHeight + 'px';
     } else {
-        timelineContainer.style.paddingBottom = '';
+        timelineContainer.style.marginBottom = '0px';
     }
     
     numpadWrapper.style.transition = 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)';
