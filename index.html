@@ -37,7 +37,7 @@
 </head>
 <body class="h-screen w-screen flex justify-center overflow-hidden bg-black">
 
-<div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
+<div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl overflow-hidden">
 
     <!-- HEADER -->
     <div class="px-6 py-4 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-20 flex justify-between items-start shadow-sm relative">
@@ -72,16 +72,16 @@
     </div>
 
     <!-- TIMELINE -->
-    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-32">
+    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-40">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
 
-    <!-- NUMPAD -->
-    <div id="numpadContainer" class="bg-slate-950 p-5 rounded-t-3xl shadow-[0_-15px_40px_rgba(0,0,0,0.5)] z-20 pb-8 flex flex-col transition-all duration-300">
-        <button id="numpadDragHandle" onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none" tabindex="-1">
-            <svg id="numpadToggleIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300"><polyline points="6 9 12 15 18 9"></polyline></svg>
-        </button>
-        <div id="numpadContent" class="flex flex-col">
+    <!-- DRAGGABLE NUMPAD BOTTOM SHEET -->
+    <div id="numpadWrapper" class="absolute bottom-0 left-0 right-0 bg-slate-950 rounded-t-3xl shadow-[0_-25px_50px_rgba(0,0,0,0.5)] z-50 flex flex-col">
+        <div id="dragHandle" class="w-full pt-5 pb-3 flex justify-center items-center cursor-grab active:cursor-grabbing touch-none">
+            <div class="w-12 h-1.5 bg-slate-700 rounded-full"></div>
+        </div>
+        <div id="numpadContent" class="px-5 pb-8 flex flex-col">
             <div class="flex items-center justify-between bg-slate-900 rounded-2xl p-4 mb-4 border border-slate-800">
                 <span id="inputDisplay" class="text-4xl font-bold text-slate-300 tracking-widest transition-colors duration-200">0</span>
                 <span class="text-slate-500 font-semibold text-lg">DK</span>
@@ -136,14 +136,13 @@ let suggestedValue    = "";
 let nodes             = [];
 let activeNodeIndex   = -1;
 let nextNodeType      = 'work';
-let isNumpadExpanded  = true;
 let isConfirmDeleteOpen = false;
 
 let audioCtx         = null;
 let wakeLockSentinel = null;
 
 // ═══════════════════════════════════════════════════════
-// WEB WORKER
+// WEB WORKER (No bloat, robust interval)
 // ═══════════════════════════════════════════════════════
 const workerCode = `
     let timer = null;
@@ -171,7 +170,9 @@ const totalElapsedDisplay = document.getElementById('totalElapsedDisplay');
 const totalWorkDisplay    = document.getElementById('totalWorkDisplay');
 const topStartBtn         = document.getElementById('topStartBtn');
 const timelineContainer   = document.getElementById('timelineContainer');
-const numpadDragHandle    = document.getElementById('numpadDragHandle');
+const numpadWrapper       = document.getElementById('numpadWrapper');
+const numpadContent       = document.getElementById('numpadContent');
+const dragHandle          = document.getElementById('dragHandle');
 
 // ═══════════════════════════════════════════════════════
 // FORMAT
@@ -187,7 +188,7 @@ function formatMMSS(s) {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUDIO (Bellek Sızıntısı Filtreli GC Uyumlu)
+// AUDIO (Bellek Sızıntısı Filtreli, GC Uyumlu)
 // ═══════════════════════════════════════════════════════
 function getAudioContext() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -207,7 +208,7 @@ function playCountdown(type) {
             gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.1);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
             osc.connect(gain); gain.connect(ctx.destination);
-            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+            osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
         } else {
             osc.type = 'square';
@@ -216,7 +217,7 @@ function playCountdown(type) {
             gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
             osc.connect(gain); gain.connect(ctx.destination);
-            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+            osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
         }
     } catch(e) { console.warn('Countdown audio:', e); }
@@ -234,7 +235,7 @@ function playBeep(type) {
                 gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.05);
                 gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.6);
                 osc.connect(gain); gain.connect(ctx.destination);
-                osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+                osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
                 osc.start(ctx.currentTime + offset); osc.stop(ctx.currentTime + offset + 0.75);
             });
         } else {
@@ -246,7 +247,7 @@ function playBeep(type) {
             gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
             osc.connect(gain); gain.connect(ctx.destination);
-            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+            osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
         }
     } catch(e) { console.warn('Beep audio:', e); }
@@ -296,19 +297,7 @@ function fireNotification(completedType) {
     }
 
     try {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.ready.then(reg => {
-                reg.showNotification(title, {
-                    body: body,
-                    icon: './icon-192.png',
-                    tag: 'dopamine-timer',
-                    renotify: true,
-                    vibrate: [200, 100, 200]
-                });
-            });
-        } else {
-            new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
-        }
+        new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
     } catch(e) { console.warn('Notification hatası:', e); }
 }
 
@@ -381,13 +370,17 @@ function tick() {
         playBeep(lastCompletedType);
     }
 
-    if (timelineNeedsRender) renderTimeline();
+    if (timelineNeedsRender) {
+        renderTimeline();
+        scrollToActive();
+    }
+    
     updateActiveNodeDisplay();
     updateDisplays();
 }
 
 // ═══════════════════════════════════════════════════════
-// DISPLAYS
+// DISPLAYS & SCROLL
 // ═══════════════════════════════════════════════════════
 function manageStartButtonState() {
     if (nodes.length === 0) {
@@ -425,7 +418,6 @@ function updateDisplays() {
     document.getElementById('emergencyTimeDisplay').textContent =
         `(+${formatMMSS(Math.floor(displayEmergencyMs / 1000))})`;
 
-    // Optimizasyon: Array filter yerine düşük maliyetli döngü
     let wc = 0, bc = 0;
     for (let i = 0; i < nodes.length; i++) {
         if (nodes[i].state === 'completed') {
@@ -452,8 +444,19 @@ function updateInputDisplay() {
     }
 }
 
+function scrollToActive() {
+    setTimeout(() => {
+        if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+            const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
+            if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }, 50);
+}
+
 // ═══════════════════════════════════════════════════════
-// INPUT & UI HELPERS
+// INPUT & DRAGGABLE NUMPAD (Bottom Sheet)
 // ═══════════════════════════════════════════════════════
 function appendNum(num) {
     getAudioContext();
@@ -464,49 +467,67 @@ function deleteNum() {
     currentInputValue = currentInputValue.slice(0,-1); updateInputDisplay();
 }
 
-function scrollToActive() {
-    setTimeout(() => {
-        if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
-            const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
-            if (activeEl) {
-                activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        } else {
-            timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    }, 50);
+let numpadOpen = true;
+let isDraggingNumpad = false;
+let startNumpadY = 0;
+let initialTranslateY = 0;
+
+function setNumpadState(open) {
+    numpadOpen = open;
+    const contentHeight = numpadContent.offsetHeight;
+    numpadWrapper.style.transition = 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)';
+    numpadWrapper.style.transform = `translateY(${open ? 0 : contentHeight}px)`;
+    if (!open) scrollToActive();
 }
 
 function toggleNumpad() {
-    isNumpadExpanded = !isNumpadExpanded;
-    document.getElementById('numpadContent').classList.toggle('hidden', !isNumpadExpanded);
-    document.getElementById('numpadToggleIcon').style.transform = isNumpadExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    setNumpadState(!numpadOpen);
+}
+
+dragHandle.addEventListener('click', () => {
+    if (!isDraggingNumpad) toggleNumpad();
+});
+
+numpadWrapper.addEventListener('touchstart', e => {
+    isDraggingNumpad = true;
+    startNumpadY = e.touches[0].clientY;
     
-    if (!isNumpadExpanded) {
-        scrollToActive();
-    }
-}
-
-function forceCloseNumpadAndScroll() {
-    if (isNumpadExpanded) toggleNumpad();
-    else scrollToActive();
-}
-
-// Mobile Swipe to Close Numpad Logic
-let touchStartY = 0;
-numpadDragHandle.addEventListener('touchstart', e => {
-    touchStartY = e.touches[0].clientY;
+    const style = window.getComputedStyle(numpadWrapper);
+    const matrix = new WebKitCSSMatrix(style.transform);
+    initialTranslateY = matrix.m42;
+    
+    numpadWrapper.style.transition = 'none';
 }, {passive: true});
 
-numpadDragHandle.addEventListener('touchmove', e => {
-    if (!isNumpadExpanded) return;
-    const currentY = e.touches[0].clientY;
-    const deltaY = currentY - touchStartY;
-    if (deltaY > 40) { 
-        forceCloseNumpadAndScroll();
-        touchStartY = currentY; 
-    }
+numpadWrapper.addEventListener('touchmove', e => {
+    if (!isDraggingNumpad) return;
+    const deltaY = e.touches[0].clientY - startNumpadY;
+    let newY = initialTranslateY + deltaY;
+    
+    const contentHeight = numpadContent.offsetHeight;
+    if (newY < 0) newY = 0; 
+    if (newY > contentHeight) newY = contentHeight;
+    
+    numpadWrapper.style.transform = `translateY(${newY}px)`;
 }, {passive: true});
+
+numpadWrapper.addEventListener('touchend', e => {
+    if (!isDraggingNumpad) return;
+    isDraggingNumpad = false;
+    
+    const style = window.getComputedStyle(numpadWrapper);
+    const matrix = new WebKitCSSMatrix(style.transform);
+    const finalY = matrix.m42;
+    const contentHeight = numpadContent.offsetHeight;
+    
+    if (numpadOpen) {
+        if (finalY > contentHeight * 0.2) setNumpadState(false);
+        else setNumpadState(true);
+    } else {
+        if (finalY < contentHeight * 0.8) setNumpadState(true);
+        else setNumpadState(false);
+    }
+});
 
 // ═══════════════════════════════════════════════════════
 // EMERGENCY BREAK
@@ -547,7 +568,7 @@ function toggleEmergencyBreak() {
         if (!isRunning) timerWorker.postMessage('stop');
     }
     
-    forceCloseNumpadAndScroll();
+    setNumpadState(false);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -768,7 +789,7 @@ function startGlobalTimer() {
     manageEmergencyButtonState();
     timerWorker.postMessage('start');
     
-    forceCloseNumpadAndScroll();
+    setNumpadState(false);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -803,6 +824,11 @@ renderTimeline();
 updateInputDisplay();
 manageStartButtonState();
 manageEmergencyButtonState();
+
+// Initialize Numpad Wrapper Position Correctly
+setTimeout(() => {
+    setNumpadState(true);
+}, 50);
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
