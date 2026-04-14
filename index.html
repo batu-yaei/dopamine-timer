@@ -250,7 +250,71 @@ let audioCtx         = null;
 let wakeLockSentinel = null;
 
 // ═══════════════════════════════════════════════════════
-// WEB WORKER (No bloat, robust interval)
+// STATE PRESERVATION (LOCAL STORAGE)
+// ═══════════════════════════════════════════════════════
+function saveState() {
+    const state = {
+        nodes, activeNodeIndex, isRunning, totalElapsedSeconds, totalWorkSeconds,
+        lastTickTime, isSequenceBroken, suggestedValue, currentInputValue,
+        isEmergencyBreak, emergencyBreakMs, emergencyBreakStartTime
+    };
+    localStorage.setItem('dopamineTimerData', JSON.stringify(state));
+}
+
+function loadState() {
+    const raw = localStorage.getItem('dopamineTimerData');
+    if (!raw) return false;
+    try {
+        const state = JSON.parse(raw);
+        nodes = state.nodes || [];
+        activeNodeIndex = state.activeNodeIndex !== undefined ? state.activeNodeIndex : -1;
+        isRunning = state.isRunning || false;
+        totalElapsedSeconds = state.totalElapsedSeconds || 0;
+        totalWorkSeconds = state.totalWorkSeconds || 0;
+        lastTickTime = state.lastTickTime || Date.now();
+        isSequenceBroken = state.isSequenceBroken || false;
+        suggestedValue = state.suggestedValue || "1";
+        currentInputValue = state.currentInputValue || "";
+        isEmergencyBreak = state.isEmergencyBreak || false;
+        emergencyBreakMs = state.emergencyBreakMs || 0;
+        emergencyBreakStartTime = state.emergencyBreakStartTime || null;
+
+        if (isRunning && !isEmergencyBreak) {
+            const now = Date.now();
+            const offlineMs = now - lastTickTime;
+            if (offlineMs > 0) {
+                const offlineSecs = Math.floor(offlineMs / 1000);
+                totalElapsedSeconds += offlineSecs;
+
+                if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+                    let activeN = nodes[activeNodeIndex];
+                    if (activeN.type === 'work') {
+                        const expectedEnd = activeN.expectedEndAt;
+                        if (lastTickTime < expectedEnd) {
+                            const validWorkMs = Math.min(now, expectedEnd) - lastTickTime;
+                            if (validWorkMs > 0) {
+                                totalWorkSeconds += Math.floor(validWorkMs / 1000);
+                            }
+                        }
+                        if (now > expectedEnd) {
+                            const ghostMs = now - Math.max(lastTickTime, expectedEnd);
+                            if (!activeN.ghostElapsedSec) activeN.ghostElapsedSec = 0;
+                            activeN.ghostElapsedSec += Math.floor(ghostMs / 1000);
+                        }
+                    }
+                }
+                lastTickTime = now;
+            }
+        }
+        return true;
+    } catch(e) {
+        console.error(e);
+        return false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// WEB WORKER
 // ═══════════════════════════════════════════════════════
 const workerCode = `
     let timer = null;
@@ -311,7 +375,6 @@ function playSparkleSound() {
     try {
         const ctx = getAudioContext();
         const now = ctx.currentTime;
-        // Tatlı ve kısa üç notalı ışıltı efekti (Sparkle)
         [800, 1200, 1600].forEach((freq, i) => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
@@ -320,11 +383,9 @@ function playSparkleSound() {
             gain.gain.setValueAtTime(0, now + i * 0.05);
             gain.gain.linearRampToValueAtTime(0.2, now + i * 0.05 + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.15);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
+            osc.connect(gain); gain.connect(ctx.destination);
             osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
-            osc.start(now + i * 0.05);
-            osc.stop(now + i * 0.05 + 0.15);
+            osc.start(now + i * 0.05); osc.stop(now + i * 0.05 + 0.15);
         });
     } catch(e) {}
 }
@@ -353,7 +414,7 @@ function playCountdown(type) {
             osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
         }
-    } catch(e) { console.warn('Countdown audio:', e); }
+    } catch(e) {}
 }
 
 function playBeep(type) {
@@ -383,7 +444,7 @@ function playBeep(type) {
             osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
         }
-    } catch(e) { console.warn('Beep audio:', e); }
+    } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════
@@ -394,7 +455,7 @@ async function acquireWakeLock() {
     try {
         wakeLockSentinel = await navigator.wakeLock.request('screen');
         wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
-    } catch(e) { console.warn('Wake Lock alınamadı:', e); }
+    } catch(e) {}
 }
 function releaseWakeLock() {
     if (wakeLockSentinel) { wakeLockSentinel.release(); wakeLockSentinel = null; }
@@ -425,24 +486,18 @@ function fireNotification(completedType) {
 
     try {
         if (typeof chrome !== 'undefined' && chrome.notifications) {
-            chrome.notifications.create({
-                type: 'basic',
-                iconUrl: 'icon-192.png',
-                title: title,
-                message: body,
-                priority: 2
-            });
+            chrome.notifications.create({ type: 'basic', iconUrl: 'icon-192.png', title, message: body, priority: 2 });
         } 
         else if ('Notification' in window && Notification.permission === 'granted') {
             if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
                 navigator.serviceWorker.ready.then(reg => {
-                    reg.showNotification(title, { body: body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true, vibrate: [200, 100, 200] });
+                    reg.showNotification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true, vibrate: [200, 100, 200] });
                 });
             } else {
                 new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
             }
         }
-    } catch(e) { console.warn('Notification hatası:', e); }
+    } catch(e) {}
 }
 
 function updateExtensionBadge(text, type) {
@@ -450,7 +505,7 @@ function updateExtensionBadge(text, type) {
 
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         const color = type === 'work' ? '#4f46e5' : '#0d9488';
-        chrome.runtime.sendMessage({ type: 'UPDATE_BADGE', text: text, color: color }).catch(() => {});
+        chrome.runtime.sendMessage({ type: 'UPDATE_BADGE', text, color }).catch(() => {});
     }
 }
 
@@ -466,6 +521,7 @@ function requestNotificationPermission() {
 function activateNode(index) {
     nodes[index].state = 'active';
     nodes[index].expectedEndAt = Date.now() + nodes[index].remaining * 1000;
+    saveState();
 }
 
 function skipActiveNode() {
@@ -476,11 +532,11 @@ function skipActiveNode() {
         nodes[activeNodeIndex].wasSkipped = true;
         tick();
     }
+    saveState();
 }
 
 function addOneMinute(id, btnElement) {
     getAudioContext();
-    
     const index = nodes.findIndex(n => n.id === id);
     if (index === -1) return;
     
@@ -492,35 +548,26 @@ function addOneMinute(id, btnElement) {
     node.addedMinutes++;
     
     if (btnElement) {
-        if (node.addedMinutes >= 5) {
-            btnElement.classList.add('pointer-events-none');
-        }
-        
+        if (node.addedMinutes >= 5) btnElement.classList.add('pointer-events-none');
         const textEl = btnElement.querySelector('.add-btn-text');
         if (textEl) {
             let nextDisplay = node.addedMinutes < 5 ? node.addedMinutes + 1 : 5;
-            
             textEl.textContent = `+${nextDisplay} DK`;
             textEl.classList.add('text-emerald-200', 'scale-125');
-            setTimeout(() => {
-                textEl.classList.remove('text-emerald-200', 'scale-125');
-            }, 200);
+            setTimeout(() => textEl.classList.remove('text-emerald-200', 'scale-125'), 200);
         }
     }
 
     if (node.state === 'active' || node.inWarningPhase || node.inCooldown) {
         node.expectedEndAt += 60000;
         node.duration += 60; 
-        
         if (node.ghostElapsedSec && node.ghostElapsedSec > 0) {
             totalWorkSeconds += node.ghostElapsedSec;
             node.ghostElapsedSec = 0;
         }
-        
         const now = Date.now();
         node.remaining = Math.ceil((node.expectedEndAt - now) / 1000);
         node.visualRemaining = node.remaining;
-        
         updateActiveNodeDisplay();
         updateDisplays();
     }
@@ -533,15 +580,17 @@ function addOneMinute(id, btnElement) {
                 node.inCooldown = false;
                 node.keepWarningUntil = 0;
                 renderTimeline();
+                saveState();
             }
         }, 1000);
     } else {
         node.keepWarningUntil = Date.now() + 2000;
     }
+    saveState();
 }
 
 // ═══════════════════════════════════════════════════════
-// TICK — Catch-up Akıl Yürütmesi İle (+1 DK Ghost Phase)
+// TICK
 // ═══════════════════════════════════════════════════════
 function tick() {
     const now = Date.now();
@@ -550,12 +599,12 @@ function tick() {
 
     if (isEmergencyBreak) {
         updateDisplays();
+        saveState();
         return;
     }
-    
     if (!isRunning) return;
 
-    if (deltaMs > 0 && deltaMs < 5000) { 
+    if (deltaMs > 0) { 
         remainderMs += deltaMs;
         while (remainderMs >= 1000) {
             remainderMs -= 1000;
@@ -563,9 +612,9 @@ function tick() {
             if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
                 const activeN = nodes[activeNodeIndex];
                 if (activeN.type === 'work') {
-                    if (activeN.expectedEndAt > Date.now()) {
-                        totalWorkSeconds++;
-                    } else {
+                    const historicalNow = now - remainderMs;
+                    if (activeN.expectedEndAt > historicalNow) totalWorkSeconds++;
+                    else {
                         if (!activeN.ghostElapsedSec) activeN.ghostElapsedSec = 0;
                         activeN.ghostElapsedSec++;
                     }
@@ -622,17 +671,12 @@ function tick() {
         const shouldBeWarning = (node.type === 'work' && !node.wasSkipped && (inTimeWindow || forcedWarning));
         
         if (shouldBeWarning && !node.inWarningPhase) {
-            node.inWarningPhase = true;
-            timelineNeedsRender = true;
+            node.inWarningPhase = true; timelineNeedsRender = true;
         } else if (!shouldBeWarning && node.inWarningPhase) {
-            node.inWarningPhase = false;
-            node.inCooldown = false;
-            timelineNeedsRender = true;
+            node.inWarningPhase = false; node.inCooldown = false; timelineNeedsRender = true;
         }
 
-        if (shouldBeWarning && exactRemainingMs <= 0 && !node.inCooldown) {
-            node.inCooldown = true;
-        }
+        if (shouldBeWarning && exactRemainingMs <= 0 && !node.inCooldown) node.inCooldown = true;
 
         if (exactRemainingMs <= -5000 || (exactRemainingMs <= 0 && (node.type !== 'work' || node.wasSkipped)) || (exactRemainingMs <= 0 && !shouldBeWarning)) {
             node.state = 'completed';
@@ -648,9 +692,7 @@ function tick() {
             if (activeNodeIndex < nodes.length) {
                 activateNode(activeNodeIndex);
                 nodes[activeNodeIndex].expectedEndAt -= overflowMs;
-                if (overflowMs > 0) {
-                    nodes[activeNodeIndex].visualRemaining = nodes[activeNodeIndex].duration; 
-                }
+                if (overflowMs > 0) nodes[activeNodeIndex].visualRemaining = nodes[activeNodeIndex].duration; 
                 fireNotification(lastCompletedType);
             } else {
                 isRunning = false;
@@ -667,17 +709,11 @@ function tick() {
         }
     }
 
-    if (lastCompletedType) {
-        playBeep(lastCompletedType);
-    }
-
-    if (timelineNeedsRender) {
-        renderTimeline();
-        scrollToActive();
-    }
-    
+    if (lastCompletedType) playBeep(lastCompletedType);
+    if (timelineNeedsRender) { renderTimeline(); scrollToActive(); }
     updateActiveNodeDisplay();
     updateDisplays();
+    saveState();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -685,9 +721,7 @@ function tick() {
 // ═══════════════════════════════════════════════════════
 function manageStartButtonState() {
     const startCont = document.getElementById('startContainer');
-    if (!isRunning && startCont) {
-        startCont.classList.remove('hidden');
-    }
+    if (!isRunning && startCont) startCont.classList.remove('hidden');
 
     const hasPendingNodes = nodes.some(n => n.state === 'pending' || n.state === 'active');
 
@@ -697,7 +731,6 @@ function manageStartButtonState() {
         topStartBtn.textContent = 'SÜREYİ BAŞLAT';
     } else if (!isRunning) {
         topStartBtn.disabled  = false;
-        
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
             topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-600/30 transition-colors active:scale-95 outline-none";
         } else {
@@ -710,13 +743,10 @@ function manageStartButtonState() {
 function manageEmergencyButtonState() {
     const btn = document.getElementById('emergencyBtn');
     const isSessionActive = activeNodeIndex >= 0 && activeNodeIndex < nodes.length;
-    
     if (isSessionActive) {
-        btn.disabled = false;
-        btn.classList.remove('opacity-30', 'pointer-events-none', 'grayscale');
+        btn.disabled = false; btn.classList.remove('opacity-30', 'pointer-events-none', 'grayscale');
     } else {
-        btn.disabled = true;
-        btn.classList.add('opacity-30', 'pointer-events-none', 'grayscale');
+        btn.disabled = true; btn.classList.add('opacity-30', 'pointer-events-none', 'grayscale');
     }
 }
 
@@ -724,19 +754,15 @@ function updateDisplays() {
     totalElapsedDisplay.textContent = formatTime(totalElapsedSeconds);
     totalWorkDisplay.textContent    = formatTime(totalWorkSeconds);
     
-    let totalWorkPlanned = 0;
-    let totalPlanned = 0;
+    let totalWorkPlanned = 0, totalPlanned = 0;
     for (let i = 0; i < nodes.length; i++) {
         totalPlanned += nodes[i].duration;
         if (nodes[i].type === 'work') totalWorkPlanned += nodes[i].duration;
     }
 
     let displayEmergencyMs = emergencyBreakMs;
-    if (isEmergencyBreak && emergencyBreakStartTime !== null) {
-        displayEmergencyMs += Date.now() - emergencyBreakStartTime;
-    }
-    document.getElementById('emergencyTimeDisplay').textContent =
-        `(+${formatMMSS(Math.floor(displayEmergencyMs / 1000))})`;
+    if (isEmergencyBreak && emergencyBreakStartTime !== null) displayEmergencyMs += Date.now() - emergencyBreakStartTime;
+    document.getElementById('emergencyTimeDisplay').textContent = `(+${formatMMSS(Math.floor(displayEmergencyMs / 1000))})`;
 
     const wMins = Math.floor(totalWorkPlanned / 60);
     const tMins = Math.floor(totalPlanned / 60);
@@ -746,24 +772,17 @@ function updateDisplays() {
 function updateInputDisplay() {
     if (currentInputValue !== '') {
         inputDisplay.textContent = currentInputValue;
-        inputDisplay.classList.remove('text-slate-500','opacity-50');
-        inputDisplay.classList.add('text-slate-300');
+        inputDisplay.classList.remove('text-slate-500','opacity-50'); inputDisplay.classList.add('text-slate-300');
     } else if (suggestedValue !== '') {
         inputDisplay.textContent = suggestedValue;
-        inputDisplay.classList.remove('text-slate-300');
-        inputDisplay.classList.add('text-slate-500','opacity-50');
+        inputDisplay.classList.remove('text-slate-300'); inputDisplay.classList.add('text-slate-500','opacity-50');
     } else {
         inputDisplay.textContent = '0';
-        inputDisplay.classList.remove('text-slate-500','opacity-50');
-        inputDisplay.classList.add('text-slate-300');
+        inputDisplay.classList.remove('text-slate-500','opacity-50'); inputDisplay.classList.add('text-slate-300');
     }
 }
 
-function scrollToBottom() {
-    setTimeout(() => {
-        timelineContainer.scrollTo({ top: timelineContainer.scrollHeight, behavior: 'smooth' });
-    }, 50);
-}
+function scrollToBottom() { setTimeout(() => { timelineContainer.scrollTo({ top: timelineContainer.scrollHeight, behavior: 'smooth' }); }, 50); }
 
 function scrollToActive() {
     setTimeout(() => {
@@ -782,60 +801,36 @@ function scrollToActive() {
 }
 
 // ═══════════════════════════════════════════════════════
-// INPUT & DRAGGABLE NUMPAD (Bottom Sheet)
+// INPUT & DRAGGABLE NUMPAD
 // ═══════════════════════════════════════════════════════
-function appendNum(num) {
-    getAudioContext();
-    if (currentInputValue.length < 4) { currentInputValue += num.toString(); updateInputDisplay(); }
-}
-function deleteNum() {
-    getAudioContext();
-    currentInputValue = currentInputValue.slice(0,-1); updateInputDisplay();
-}
+function appendNum(num) { getAudioContext(); if (currentInputValue.length < 4) { currentInputValue += num.toString(); updateInputDisplay(); } saveState(); }
+function deleteNum() { getAudioContext(); currentInputValue = currentInputValue.slice(0,-1); updateInputDisplay(); saveState(); }
 
-let numpadOpen = true;
-let isDraggingNumpad = false;
-let startNumpadY = 0;
-let initialTranslateY = 0;
+let numpadOpen = true, isDraggingNumpad = false, startNumpadY = 0, initialTranslateY = 0;
 
 function setNumpadState(open) {
-    const wasOpen = numpadOpen;
-    numpadOpen = open;
-    const contentHeight = numpadContent.offsetHeight;
-    const wrapperHeight = numpadWrapper.offsetHeight;
+    const wasOpen = numpadOpen; numpadOpen = open;
+    const contentHeight = numpadContent.offsetHeight, wrapperHeight = numpadWrapper.offsetHeight;
     
-    if (open) {
-        timelineContainer.style.paddingBottom = (wrapperHeight + 24) + 'px';
-    } else {
-        timelineContainer.style.paddingBottom = '24px';
-    }
+    if (open) timelineContainer.style.paddingBottom = (wrapperHeight + 24) + 'px';
+    else timelineContainer.style.paddingBottom = '24px';
     
     numpadWrapper.style.transition = 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)';
     numpadWrapper.style.transform = `translateY(${open ? 0 : contentHeight}px)`;
     
-    if (open && !wasOpen) {
-        scrollToBottom();
-    } else if (!open && wasOpen) {
-        scrollToActive();
-    }
+    if (open && !wasOpen) scrollToBottom();
+    else if (!open && wasOpen) scrollToActive();
 }
 
-function toggleNumpad() {
-    setNumpadState(!numpadOpen);
-}
+function toggleNumpad() { setNumpadState(!numpadOpen); }
 
-dragHandle.addEventListener('click', () => {
-    if (!isDraggingNumpad) toggleNumpad();
-});
+dragHandle.addEventListener('click', () => { if (!isDraggingNumpad) toggleNumpad(); });
 
 numpadWrapper.addEventListener('touchstart', e => {
-    isDraggingNumpad = true;
-    startNumpadY = e.touches[0].clientY;
-    
+    isDraggingNumpad = true; startNumpadY = e.touches[0].clientY;
     const style = window.getComputedStyle(numpadWrapper);
     const matrix = new WebKitCSSMatrix(style.transform);
     initialTranslateY = matrix.m42;
-    
     numpadWrapper.style.transition = 'none';
 }, {passive: true});
 
@@ -844,23 +839,17 @@ numpadWrapper.addEventListener('touchmove', e => {
     e.preventDefault(); 
     const deltaY = e.touches[0].clientY - startNumpadY;
     let newY = initialTranslateY + deltaY;
-    
     const contentHeight = numpadContent.offsetHeight;
-    if (newY < 0) newY = 0; 
-    if (newY > contentHeight) newY = contentHeight;
-    
+    if (newY < 0) newY = 0; if (newY > contentHeight) newY = contentHeight;
     numpadWrapper.style.transform = `translateY(${newY}px)`;
 }, {passive: false});
 
 numpadWrapper.addEventListener('touchend', e => {
     if (!isDraggingNumpad) return;
     isDraggingNumpad = false;
-    
     const style = window.getComputedStyle(numpadWrapper);
     const matrix = new WebKitCSSMatrix(style.transform);
-    const finalY = matrix.m42;
-    const contentHeight = numpadContent.offsetHeight;
-    
+    const finalY = matrix.m42, contentHeight = numpadContent.offsetHeight;
     if (numpadOpen) {
         if (finalY > contentHeight * 0.2) setNumpadState(false);
         else setNumpadState(true);
@@ -889,20 +878,15 @@ function toggleEmergencyBreak() {
         btn.classList.replace('hover:text-red-400','hover:text-emerald-400');
         icon.className = "w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] relative group-active:scale-95 transition-transform";
         dots.forEach(d => d.classList.replace('bg-red-500','bg-emerald-500'));
-        text.textContent = "DEVAM ET";
-        disp.classList.remove('hidden');
-        
+        text.textContent = "DEVAM ET"; disp.classList.remove('hidden');
         lastTickTime = Date.now();
         if (!isRunning) timerWorker.postMessage('start');
     } else {
         const pauseDuration = Date.now() - emergencyBreakStartTime;
         emergencyBreakMs += pauseDuration;
-        
         const additionalSeconds = Math.floor(emergencyBreakMs / 1000);
         totalElapsedSeconds += additionalSeconds;
-        
-        emergencyBreakMs = 0;
-        emergencyBreakStartTime = null;
+        emergencyBreakMs = 0; emergencyBreakStartTime = null;
 
         if (isRunning && activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
             nodes[activeNodeIndex].expectedEndAt += pauseDuration;
@@ -912,18 +896,12 @@ function toggleEmergencyBreak() {
         btn.classList.replace('hover:text-emerald-400','hover:text-red-400');
         icon.className = "w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform";
         dots.forEach(d => d.classList.replace('bg-emerald-500','bg-red-500'));
-        text.textContent = "ACİL MOLA";
-        
-        disp.classList.add('hidden');
-        disp.textContent = '(+00:00)';
-        
+        text.textContent = "ACİL MOLA"; disp.classList.add('hidden'); disp.textContent = '(+00:00)';
         lastTickTime = Date.now();
         if (!isRunning) timerWorker.postMessage('stop');
-        
         updateDisplays();
     }
-    
-    setNumpadState(false);
+    setNumpadState(false); saveState();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -934,22 +912,16 @@ function recalculateSuggestionState() {
     const step = nodes.length;
 
     if (step === 0) {
-        nextNodeType = 'work';
-        suggestedValue = '1';
-        isSequenceBroken = false;
+        nextNodeType = 'work'; suggestedValue = '1'; isSequenceBroken = false;
     } else {
         const last = nodes[nodes.length - 1];
-        
         if (last.type === 'work') {
             nextNodeType = 'break';
-            
-            if (!isSequenceBroken && step < sequence.length) {
-                suggestedValue = sequence[step].toString();
-            } else {
+            if (!isSequenceBroken && step < sequence.length) suggestedValue = sequence[step].toString();
+            else {
                 const wMins = last.duration / 60;
-                if (wMins <= 8) {
-                    suggestedValue = Math.max(1, Math.ceil(wMins / 2)).toString();
-                } else {
+                if (wMins <= 8) suggestedValue = Math.max(1, Math.ceil(wMins / 2)).toString();
+                else {
                     const lb = [...nodes].reverse().find(n => n.type === 'break');
                     const bMins = lb ? lb.duration / 60 : 0;
                     suggestedValue = Math.max(1, Math.round(wMins/3 + 1 + 0.2*bMins)).toString();
@@ -957,19 +929,15 @@ function recalculateSuggestionState() {
             }
         } else {
             nextNodeType = 'work';
-            
-            if (!isSequenceBroken && step < sequence.length) {
-                suggestedValue = sequence[step].toString();
-            } else {
+            if (!isSequenceBroken && step < sequence.length) suggestedValue = sequence[step].toString();
+            else {
                 const lw = [...nodes].reverse().find(n => n.type === 'work');
                 if (lw) {
                     const m = lw.duration / 60;
                     if (m <= 4)       suggestedValue = Math.max(1, Math.round(m*2)).toString();
                     else if (m < 30)  suggestedValue = Math.max(m+1, Math.round(-0.0152*m*m + 1.488*m + 2.112)).toString();
                     else              suggestedValue = Math.max(m+1, Math.round(m*1.1)).toString();
-                } else {
-                    suggestedValue = '1';
-                }
+                } else suggestedValue = '1';
             }
         }
     }
@@ -979,42 +947,25 @@ function recalculateSuggestionState() {
     const ttxt  = document.getElementById('toggleAddText');
     if (nextNodeType === 'work') {
         btn.className   = "bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
-        
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-             btn.classList.replace('shadow-indigo-900/50', 'shadow-indigo-600/30');
-        }
-        
-        shape.className = "w-4 h-4 bg-white rounded-md shadow-sm";
-        ttxt.textContent = "ÇALIŞMA EKLE";
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) btn.classList.replace('shadow-indigo-900/50', 'shadow-indigo-600/30');
+        shape.className = "w-4 h-4 bg-white rounded-md shadow-sm"; ttxt.textContent = "ÇALIŞMA EKLE";
     } else {
         btn.className   = "bg-teal-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-teal-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
-        
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-             btn.classList.replace('shadow-teal-900/50', 'shadow-teal-600/30');
-        }
-        
-        shape.className = "w-4 h-4 bg-white rounded-full shadow-sm";
-        ttxt.textContent = "MOLA EKLE";
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) btn.classList.replace('shadow-teal-900/50', 'shadow-teal-600/30');
+        shape.className = "w-4 h-4 bg-white rounded-full shadow-sm"; ttxt.textContent = "MOLA EKLE";
     }
-    updateInputDisplay();
-    manageStartButtonState();
+    updateInputDisplay(); manageStartButtonState();
 }
 
 function handleAddToggle() {
-    getAudioContext();
-    let minutes = parseInt(currentInputValue, 10);
+    getAudioContext(); let minutes = parseInt(currentInputValue, 10);
     if (isNaN(minutes) || minutes <= 0) {
-        if (suggestedValue) {
-            minutes = parseInt(suggestedValue, 10);
-        } else return;
+        if (suggestedValue) minutes = parseInt(suggestedValue, 10);
+        else return;
     } else {
-        if (suggestedValue && minutes !== parseInt(suggestedValue, 10)) {
-            isSequenceBroken = true;
-        }
+        if (suggestedValue && minutes !== parseInt(suggestedValue, 10)) isSequenceBroken = true;
     }
-    addNode(nextNodeType, minutes);
-    currentInputValue = '';
-    recalculateSuggestionState();
+    addNode(nextNodeType, minutes); currentInputValue = ''; recalculateSuggestionState(); saveState();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1022,171 +973,100 @@ function handleAddToggle() {
 // ═══════════════════════════════════════════════════════
 function promptDeleteLastNode() {
     if (nodes.length === 0) return;
-    
     const lastNode = nodes[nodes.length - 1];
     if (isRunning && lastNode.state === 'active') return;
-
     isConfirmDeleteOpen = true;
-    const modal = document.getElementById('deleteConfirmModal');
-    const card  = document.getElementById('deleteConfirmCard');
+    const modal = document.getElementById('deleteConfirmModal'), card  = document.getElementById('deleteConfirmCard');
     modal.classList.remove('hidden');
-    setTimeout(() => {
-        modal.classList.remove('opacity-0');
-        card.classList.remove('scale-95');
-        document.getElementById('confirmDeleteYesBtn').focus();
-    }, 10);
+    setTimeout(() => { modal.classList.remove('opacity-0'); card.classList.remove('scale-95'); document.getElementById('confirmDeleteYesBtn').focus(); }, 10);
 }
 function closeDeleteConfirm() {
     isConfirmDeleteOpen = false;
-    const modal = document.getElementById('deleteConfirmModal');
-    const card  = document.getElementById('deleteConfirmCard');
-    modal.classList.add('opacity-0');
-    card.classList.add('scale-95');
+    const modal = document.getElementById('deleteConfirmModal'), card  = document.getElementById('deleteConfirmCard');
+    modal.classList.add('opacity-0'); card.classList.add('scale-95');
     setTimeout(() => modal.classList.add('hidden'), 200);
     if (document.activeElement) document.activeElement.blur();
 }
-function executeDeleteLastNode() {
-    if (nodes.length > 0) deleteNode(nodes[nodes.length - 1].id);
-    closeDeleteConfirm();
-}
+function executeDeleteLastNode() { if (nodes.length > 0) deleteNode(nodes[nodes.length - 1].id); closeDeleteConfirm(); }
 
 function deleteNode(id) {
-    const index = nodes.findIndex(n => n.id === id);
-    if (index === -1) return;
-    const wasActive = index === activeNodeIndex;
-    nodes.splice(index, 1);
+    const index = nodes.findIndex(n => n.id === id); if (index === -1) return;
+    const wasActive = index === activeNodeIndex; nodes.splice(index, 1);
     if (index < activeNodeIndex) activeNodeIndex--;
-
     if (wasActive) {
-        if (activeNodeIndex < nodes.length) {
-            activateNode(activeNodeIndex);
-        } else {
+        if (activeNodeIndex < nodes.length) activateNode(activeNodeIndex);
+        else {
             activeNodeIndex = -1;
-            if (isRunning) {
-                isRunning = false;
-                timerWorker.postMessage('stop');
-                releaseWakeLock();
-                updateExtensionBadge('', 'work');
-            }
-            manageStartButtonState();
-            manageEmergencyButtonState();
+            if (isRunning) { isRunning = false; timerWorker.postMessage('stop'); releaseWakeLock(); updateExtensionBadge('', 'work'); }
+            manageStartButtonState(); manageEmergencyButtonState();
         }
     }
-    renderTimeline();
-    recalculateSuggestionState();
-    updateDisplays();
+    renderTimeline(); recalculateSuggestionState(); updateDisplays(); saveState();
 }
 
 // ═══════════════════════════════════════════════════════
-// TIMELINE RENDER (Dynamic +1 DK Styling)
+// TIMELINE RENDER
 // ═══════════════════════════════════════════════════════
 function renderTimeline() {
     nodesWrapper.innerHTML = `<div class="absolute left-7 top-0 -bottom-[50px] w-px border-l-2 border-dashed border-slate-700 z-0"></div>`;
     if (nodes.length === 0) {
-        nodesWrapper.innerHTML += `
-            <div class="flex items-center gap-6 opacity-50 relative z-10">
-                <div class="w-14 flex justify-center"><div class="w-3 h-3 bg-slate-600 rounded-full z-10"></div></div>
-                <div class="text-slate-500 text-sm">Bekleniyor... Aşağıdan süre ekleyin.</div>
-            </div>`;
-        return;
+        nodesWrapper.innerHTML += `<div class="flex items-center gap-6 opacity-50 relative z-10"><div class="w-14 flex justify-center"><div class="w-3 h-3 bg-slate-600 rounded-full z-10"></div></div><div class="text-slate-500 text-sm">Bekleniyor... Aşağıdan süre ekleyin.</div></div>`; return;
     }
     
-    let wCount = 0;
-    let bCount = 0;
-    let isLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    let wCount = 0, bCount = 0, isLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
     
     nodes.forEach((node, index) => {
-        const el = document.createElement('div');
-        
-        const isWarning = node.inWarningPhase;
-
+        const el = document.createElement('div'), isWarning = node.inWarningPhase;
         el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out relative z-10 ${node.state==='completed' ? 'completed-node' : ''}`;
         el.id = `node-${node.id}`;
         const shapeClass = node.type === 'work' ? 'rounded-2xl' : 'rounded-full';
         
         let bgClass = "";
-        if (isLight) {
-            bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-600/30' : 'bg-teal-600 shadow-teal-600/30';
-        } else {
-            bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-900/50' : 'bg-teal-600 shadow-teal-900/50';
-        }
+        if (isLight) bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-600/30' : 'bg-teal-600 shadow-teal-600/30';
+        else bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-900/50' : 'bg-teal-600 shadow-teal-900/50';
         
         let activeClass = node.state === 'active' && !isWarning ? 'active-node' : '';
-        const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500';
-        const label       = node.type === 'work' ? 'Çalışma' : 'Mola';
+        const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500', label = node.type === 'work' ? 'Çalışma' : 'Mola';
         
         let badgeCount = 0;
-        if (node.type === 'work') {
-            wCount++;
-            badgeCount = wCount;
-        } else {
-            bCount++;
-            badgeCount = bCount;
-        }
+        if (node.type === 'work') { wCount++; badgeCount = wCount; } else { bCount++; badgeCount = bCount; }
         const badge = (node.type === 'work' ? 'W' : 'B') + badgeCount;
 
         if (isWarning) {
             const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
-            
-            let nextDisplay = (node.addedMinutes || 0) + 1;
-            if (nextDisplay > 5) nextDisplay = 5;
-            let addedText = `+${nextDisplay} DK`;
-            let pointerClass = (node.addedMinutes >= 5) ? 'pointer-events-none' : '';
+            let nextDisplay = (node.addedMinutes || 0) + 1; if (nextDisplay > 5) nextDisplay = 5;
+            let addedText = `+${nextDisplay} DK`, pointerClass = (node.addedMinutes >= 5) ? 'pointer-events-none' : '';
             
             el.innerHTML = `
                 <div class="relative flex-shrink-0 flex justify-center w-14">
-                    <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 warning-node">
-                        <span class="font-bold text-xs text-white opacity-70 keep-white">${badge}</span>
-                    </div>
+                    <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 warning-node"><span class="font-bold text-xs text-white opacity-70 keep-white">${badge}</span></div>
                 </div>
                 <div class="flex items-center w-full warning-bg text-white p-4 rounded-2xl cursor-pointer warning-node transition-colors duration-300 select-none ${pointerClass}" onclick="addOneMinute('${node.id}', this)">
                     <div class="flex-1 flex justify-between items-center pr-2 pointer-events-none">
-                        <div class="flex flex-col">
-                            <span class="font-bold uppercase text-sm text-amber-100">${label}</span>
-                            <div class="text-3xl font-bold font-mono tracking-tighter leading-none" id="time-${node.id}">
-                                ${formatMMSS(displaySecs)}
-                            </div>
-                        </div>
+                        <div class="flex flex-col"><span class="font-bold uppercase text-sm text-amber-100">${label}</span><div class="text-3xl font-bold font-mono tracking-tighter leading-none" id="time-${node.id}">${formatMMSS(displaySecs)}</div></div>
                         <div class="add-btn-text text-3xl font-black tracking-tight drop-shadow-md transition-all duration-200">${addedText}</div>
                     </div>
                 </div>`;
         } else {
             let wrapperBgClass = 'bg-slate-800/80 border-slate-700/50';
             if (isLight) wrapperBgClass = 'bg-white border-slate-200';
+            const isLast = index === nodes.length - 1, showDelete = isLast && !(isRunning && node.state === 'active');
             
-            const isLast = index === nodes.length - 1;
-            const showDelete = isLast && !(isRunning && node.state === 'active');
-            
-            const delBtn = showDelete ? `
-                <button onclick="executeDeleteLastNode()" class="p-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center flex-shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>` : '';
-
+            const delBtn = showDelete ? `<button onclick="executeDeleteLastNode()" class="p-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>` : '';
             const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none whitespace-nowrap" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md whitespace-nowrap";
             const skipBtn = (node.state === 'active') ? `<button onclick="skipActiveNode()" class="${skipBtnClass}">ATLA</button>` : '';
-
             const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
 
             el.innerHTML = `
                 <div class="relative flex-shrink-0 flex justify-center w-14">
-                    <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}">
-                        <span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span>
-                    </div>
+                    <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}"><span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span></div>
                 </div>
                 <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border transition-colors duration-300 min-w-0">
                     <div class="flex-1 flex flex-col justify-center min-w-0">
-                        <div class="flex justify-between items-center mb-1">
-                            <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
-                            <span class="text-xs text-slate-500 font-medium whitespace-nowrap ml-2">${node.duration/60} dk</span>
-                        </div>
+                        <div class="flex justify-between items-center mb-1"><span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span><span class="text-xs text-slate-500 font-medium whitespace-nowrap ml-2">${node.duration/60} dk</span></div>
                         <div class="flex justify-between items-center w-full mt-1">
-                            <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none truncate" id="time-${node.id}">
-                                ${formatMMSS(displaySecs)}
-                            </div>
-                            <div class="flex items-center gap-2 ml-3">
-                                ${skipBtn}
-                                ${delBtn}
-                            </div>
+                            <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none truncate" id="time-${node.id}">${formatMMSS(displaySecs)}</div>
+                            <div class="flex items-center gap-2 ml-3">${skipBtn}${delBtn}</div>
                         </div>
                     </div>
                 </div>`;
@@ -1197,12 +1077,8 @@ function renderTimeline() {
 
 function updateActiveNodeDisplay() {
     if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
-        const node = nodes[activeNodeIndex];
-        const el = document.getElementById(`time-${node.id}`);
-        if (el) {
-            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
-            el.textContent = formatMMSS(displaySecs);
-        }
+        const node = nodes[activeNodeIndex], el = document.getElementById(`time-${node.id}`);
+        if (el) { const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining; el.textContent = formatMMSS(displaySecs); }
     }
 }
 
@@ -1211,23 +1087,11 @@ function updateActiveNodeDisplay() {
 // ═══════════════════════════════════════════════════════
 function addNode(type, minutes) {
     if (isNaN(minutes) || minutes <= 0) return;
-    const newNode = {
-        id: Date.now() + Math.random().toString(36).slice(2,9),
-        type, duration: minutes*60, remaining: minutes*60, state: 'pending',
-        expectedEndAt: 0, inWarningPhase: false, inCooldown: false, wasSkipped: false
-    };
+    const newNode = { id: Date.now() + Math.random().toString(36).slice(2,9), type, duration: minutes*60, remaining: minutes*60, state: 'pending', expectedEndAt: 0, inWarningPhase: false, inCooldown: false, wasSkipped: false };
     nodes.push(newNode);
-    if (isRunning && activeNodeIndex >= nodes.length - 1) {
-        activeNodeIndex = nodes.length - 1;
-        activateNode(activeNodeIndex);
-    }
-    renderTimeline();
-    manageStartButtonState();
-    updateDisplays();
-    
-    if (numpadOpen) {
-        scrollToBottom();
-    }
+    if (isRunning && activeNodeIndex >= nodes.length - 1) { activeNodeIndex = nodes.length - 1; activateNode(activeNodeIndex); }
+    renderTimeline(); manageStartButtonState(); updateDisplays(); saveState();
+    if (numpadOpen) scrollToBottom();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1237,27 +1101,15 @@ function startGlobalTimer() {
     if (nodes.length === 0 || isRunning) return;
     if (activeNodeIndex >= nodes.length) return;
 
-    getAudioContext();
-    requestNotificationPermission();
-    acquireWakeLock();
-
-    isRunning = true;
-    lastTickTime = Date.now();
-    remainderMs = 0;
-
-    const startCont = document.getElementById('startContainer');
-    if(startCont) startCont.classList.add('hidden');
+    getAudioContext(); requestNotificationPermission(); acquireWakeLock();
+    isRunning = true; lastTickTime = Date.now(); remainderMs = 0;
+    const startCont = document.getElementById('startContainer'); if(startCont) startCont.classList.add('hidden');
 
     if (activeNodeIndex < 0 || nodes[activeNodeIndex].state === 'pending') {
         if (activeNodeIndex < 0) activeNodeIndex = 0;
-        activateNode(activeNodeIndex); 
-        renderTimeline();
+        activateNode(activeNodeIndex); renderTimeline();
     }
-    
-    manageEmergencyButtonState();
-    timerWorker.postMessage('start');
-    
-    setNumpadState(false);
+    manageEmergencyButtonState(); timerWorker.postMessage('start'); setNumpadState(false); saveState();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1266,14 +1118,7 @@ function startGlobalTimer() {
 document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     getAudioContext();
-    
-    if (e.code === 'Space') {
-        e.preventDefault();
-        if (document.activeElement) document.activeElement.blur();
-        toggleNumpad();
-        return;
-    }
-
+    if (e.code === 'Space') { e.preventDefault(); if (document.activeElement) document.activeElement.blur(); toggleNumpad(); return; }
     if (isConfirmDeleteOpen) {
         if (e.key === 'Enter')   { executeDeleteLastNode(); e.preventDefault(); }
         if (e.key === 'Escape')  { closeDeleteConfirm();   e.preventDefault(); }
@@ -1285,35 +1130,44 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Delete')      { promptDeleteLastNode(); e.preventDefault(); }
 });
 
-window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
-    renderTimeline();
-    recalculateSuggestionState();
-    manageStartButtonState();
-});
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => { renderTimeline(); recalculateSuggestionState(); manageStartButtonState(); });
 
 // ═══════════════════════════════════════════════════════
-// INIT
+// INIT & WINDOW CLOSE CONFIRMATION
 // ═══════════════════════════════════════════════════════
-recalculateSuggestionState();
-renderTimeline();
-updateInputDisplay();
-manageStartButtonState();
-manageEmergencyButtonState();
-updateDisplays();
+const hasLoaded = loadState();
+if (!hasLoaded) recalculateSuggestionState();
+else if (isEmergencyBreak) {
+    const btn   = document.getElementById('emergencyBtn'), icon  = document.getElementById('emergencyIcon'), text  = document.getElementById('emergencyText'), disp  = document.getElementById('emergencyTimeDisplay'), dots  = icon.querySelectorAll('div');
+    btn.classList.replace('text-red-500','text-emerald-500'); btn.classList.replace('hover:text-red-400','hover:text-emerald-400');
+    icon.className = "w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] relative group-active:scale-95 transition-transform";
+    dots.forEach(d => d.classList.replace('bg-red-500','bg-emerald-500')); text.textContent = "DEVAM ET"; disp.classList.remove('hidden');
+}
 
-setTimeout(() => {
-    setNumpadState(true);
-}, 50);
+renderTimeline(); updateInputDisplay(); manageStartButtonState(); manageEmergencyButtonState(); updateDisplays();
+
+if (isRunning) {
+    timerWorker.postMessage('start');
+    const startCont = document.getElementById('startContainer'); if(startCont) startCont.classList.add('hidden');
+}
+setTimeout(() => { setNumpadState(true); }, 50);
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         if (window.location.protocol === 'https:' || window.location.protocol === 'http:' || window.location.hostname === 'localhost') {
-            navigator.serviceWorker.register('./sw.js', {scope:'./'})
-                .then(r => console.log('SW registered:', r.scope))
-                .catch(e => console.warn('SW error:', e));
+            navigator.serviceWorker.register('./sw.js', {scope:'./'}).then(r => console.log('SW registered:', r.scope)).catch(e => console.warn('SW error:', e));
         }
     });
 }
+
+// Devam eden süre varsa çıkış yaparken uyarı göster
+window.addEventListener('beforeunload', (e) => {
+    const hasActiveOrPending = nodes.some(n => n.state === 'active' || n.state === 'pending');
+    if (hasActiveOrPending) {
+        e.preventDefault();
+        e.returnValue = ''; // Chrome'da native modal çıkartır
+    }
+});
 </script>
 </body>
 </html>
