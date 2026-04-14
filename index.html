@@ -677,6 +677,13 @@
             renderTimeline();
             manageStartButtonState();
             recalculateAllSchedules();
+
+            setTimeout(() => {
+                const container = document.getElementById('timelineContainer');
+                if (container) {
+                    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                }
+            }, 50);
         }
 
         function tick() {
