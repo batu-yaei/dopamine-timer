@@ -115,6 +115,22 @@
             70%  { transform: scale(1);    box-shadow: 0 0 0 10px rgba(148, 163, 184, 0); }
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(148, 163, 184, 0); }
         }
+        
+        @keyframes gentle-bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+        
+        .warning-node {
+            animation: gentle-bounce 0.8s ease-in-out infinite;
+        }
+        
+        .warning-bg {
+            background-color: #f59e0b !important;
+            border-color: #f59e0b !important;
+            box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.6) !important;
+        }
+
         .active-node  { animation: pulse-ring 2s infinite; border: 2px solid var(--text-muted); }
         .completed-node { opacity: 0.5; filter: grayscale(100%); }
         .numpad-btn:active { transform: scale(0.95); background-color: var(--bg-numpad-btn-active) !important; }
@@ -151,12 +167,12 @@
         <div class="flex flex-col text-right flex-1 items-end">
             <span class="text-[10px] text-indigo-400 font-semibold tracking-wider uppercase">Toplam Çalışma</span>
             <span id="totalWorkDisplay" class="text-2xl font-bold text-indigo-300 tabular-nums tracking-tight">00:00:00</span>
-            <span id="sessionStatsDisplay" class="text-[10px] text-slate-500/70 font-mono mt-0.5 tracking-wider">W:0 / B:0</span>
+            <span id="sessionStatsDisplay" class="text-[10px] text-slate-500/70 font-mono mt-0.5 tracking-wider">W:0 / T:0</span>
         </div>
     </div>
 
     <!-- START BUTTON -->
-    <div class="px-6 py-3 bg-slate-900 border-b border-slate-800 z-20 flex justify-center shadow-md relative">
+    <div id="startContainer" class="px-6 py-3 bg-slate-900 border-b border-slate-800 z-20 flex justify-center shadow-md relative">
         <button id="topStartBtn" class="w-full bg-slate-700 text-slate-500 rounded-xl py-3 font-bold transition-all outline-none opacity-50 cursor-not-allowed" onclick="startGlobalTimer()" disabled>SÜREYİ BAŞLAT</button>
     </div>
 
@@ -215,6 +231,8 @@
 let isRunning = false;
 let totalElapsedSeconds = 0;
 let totalWorkSeconds    = 0;
+let remainderMs         = 0;
+let lastTickTime        = Date.now();
 
 let isEmergencyBreak       = false;
 let emergencyBreakMs       = 0;
@@ -226,6 +244,7 @@ let nodes             = [];
 let activeNodeIndex   = -1;
 let nextNodeType      = 'work';
 let isConfirmDeleteOpen = false;
+let isSequenceBroken  = false;
 
 let audioCtx         = null;
 let wakeLockSentinel = null;
@@ -273,16 +292,40 @@ function formatTime(s) {
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
 }
 function formatMMSS(s) {
-    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+    const isNeg = s < 0;
+    const absS = Math.abs(s);
+    const str = `${String(Math.floor(absS/60)).padStart(2,'0')}:${String(absS%60).padStart(2,'0')}`;
+    return isNeg ? `-${str}` : str;
 }
 
 // ═══════════════════════════════════════════════════════
-// AUDIO (Bellek Sızıntısı Filtreli, GC Uyumlu)
+// AUDIO
 // ═══════════════════════════════════════════════════════
 function getAudioContext() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
+}
+
+function playSparkleSound() {
+    try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+        [800, 1200, 1600].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + i * 0.05);
+            gain.gain.setValueAtTime(0, now + i * 0.05);
+            gain.gain.linearRampToValueAtTime(0.2, now + i * 0.05 + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
+            osc.start(now + i * 0.05);
+            osc.stop(now + i * 0.05 + 0.15);
+        });
+    } catch(e) {}
 }
 
 function playCountdown(type) {
@@ -402,65 +445,174 @@ function fireNotification(completedType) {
 }
 
 // ═══════════════════════════════════════════════════════
-// NODE ACTIVATION
+// NODE ACTIVATION & SKIP & +1 DK
 // ═══════════════════════════════════════════════════════
 function activateNode(index) {
     nodes[index].state = 'active';
     nodes[index].expectedEndAt = Date.now() + nodes[index].remaining * 1000;
 }
 
-// Aktif süreyi atlamak için fonksiyon
 function skipActiveNode() {
     getAudioContext();
     if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
         nodes[activeNodeIndex].remaining = 0;
         nodes[activeNodeIndex].expectedEndAt = Date.now();
+        nodes[activeNodeIndex].wasSkipped = true;
         tick();
     }
 }
 
+function addOneMinute(id, btnElement) {
+    getAudioContext();
+    playSparkleSound();
+    
+    const index = nodes.findIndex(n => n.id === id);
+    if (index === -1) return;
+    
+    const node = nodes[index];
+    if (!node.addedMinutes) node.addedMinutes = 0;
+    if (node.addedMinutes >= 5) return; // Maksimum 5 kez ekleme kuralı
+    
+    node.addedMinutes++;
+    
+    // Tıklandığında menünün hemen gitmesini engellemek ve devamlı tıklamayı sağlamak için
+    node.keepWarningUntil = Date.now() + 2000;
+    
+    if (btnElement) {
+        const textEl = btnElement.querySelector('.add-btn-text');
+        if (textEl) {
+            textEl.textContent = `+${node.addedMinutes} DK`;
+            textEl.classList.add('text-emerald-200', 'scale-125');
+            setTimeout(() => {
+                textEl.classList.remove('text-emerald-200', 'scale-125');
+            }, 200);
+        }
+    }
+
+    if (node.state === 'active' || node.inWarningPhase || node.inCooldown) {
+        node.expectedEndAt += 60000;
+        node.duration += 60; 
+        
+        // Ghost phase'de geçirilip de telafi edilen süreyi Work Seconds'a geri yükle
+        if (node.ghostElapsedSec && node.ghostElapsedSec > 0) {
+            totalWorkSeconds += node.ghostElapsedSec;
+            node.ghostElapsedSec = 0;
+        }
+        
+        const now = Date.now();
+        node.remaining = Math.ceil((node.expectedEndAt - now) / 1000);
+        node.visualRemaining = node.remaining;
+        
+        updateActiveNodeDisplay();
+        updateDisplays();
+    }
+}
+
 // ═══════════════════════════════════════════════════════
-// TICK — Catch-up Akıl Yürütmesi İle
+// TICK — Catch-up Akıl Yürütmesi İle (+1 DK Ghost Phase)
 // ═══════════════════════════════════════════════════════
 function tick() {
+    const now = Date.now();
+    const deltaMs = now - lastTickTime;
+    lastTickTime = now;
+
     if (isEmergencyBreak) {
         updateDisplays();
         return;
     }
+    
     if (!isRunning) return;
 
-    const now = Date.now();
+    if (deltaMs > 0 && deltaMs < 5000) { 
+        remainderMs += deltaMs;
+        while (remainderMs >= 1000) {
+            remainderMs -= 1000;
+            totalElapsedSeconds++;
+            if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+                const activeN = nodes[activeNodeIndex];
+                if (activeN.type === 'work') {
+                    if (activeN.expectedEndAt > Date.now()) {
+                        totalWorkSeconds++;
+                    } else {
+                        // Negatif süre (Ghost Phase) boyunca çalışılan ancak resmiyete dökülmemiş süre kaydı
+                        if (!activeN.ghostElapsedSec) activeN.ghostElapsedSec = 0;
+                        activeN.ghostElapsedSec++;
+                    }
+                }
+            }
+        }
+    }
+
     let timelineNeedsRender = false;
     let lastCompletedType = null;
     let didCatchUp = false;
+    let didCooldownExpire = false;
+
+    nodes.forEach(n => {
+        if (n.state === 'completed' && n.cooldownExpiresAt && n.cooldownExpiresAt > 0 && now >= n.cooldownExpiresAt) {
+            n.cooldownExpiresAt = 0;
+            didCooldownExpire = true;
+        }
+    });
+    if (didCooldownExpire) timelineNeedsRender = true;
 
     while (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
         const node = nodes[activeNodeIndex];
-        const newRemaining = Math.max(0, Math.ceil((node.expectedEndAt - now) / 1000));
-        const elapsed      = node.remaining - newRemaining;
-
+        const exactRemainingMs = node.expectedEndAt - now;
+        const newRemaining = Math.ceil(exactRemainingMs / 1000); // Negatif sayabilmesi için min(0) kaldırıldı
+        
+        const elapsed = node.remaining - newRemaining;
         if (elapsed > 2) didCatchUp = true;
 
-        if (elapsed > 0) {
-            totalElapsedSeconds += elapsed;
-            if (node.type === 'work') totalWorkSeconds += elapsed;
+        if (node.visualRemaining !== undefined && node.visualRemaining > newRemaining) {
+            node.visualRemaining -= 1;
+            if (node.visualRemaining < newRemaining) node.visualRemaining = newRemaining;
+        } else {
+            node.visualRemaining = newRemaining;
         }
 
-        if (!didCatchUp && elapsed === 1) {
-            if (newRemaining === 10)                      playCountdown('long');
-            else if (newRemaining > 0 && newRemaining < 10) playCountdown('short');
+        if (!didCatchUp && elapsed === 1 && exactRemainingMs > 0 && exactRemainingMs <= 10000 && deltaMs < 2000) {
+            if (newRemaining === 10 && node.remaining > 10) playCountdown('long');
+            else if (newRemaining > 0 && newRemaining < 10 && node.remaining > newRemaining) playCountdown('short');
         }
 
         node.remaining = newRemaining;
 
-        if (node.remaining <= 0) {
+        const inTimeWindow = (exactRemainingMs <= 15000 && exactRemainingMs > -5000);
+        const forcedWarning = (node.keepWarningUntil && node.keepWarningUntil > now);
+        const shouldBeWarning = (node.type === 'work' && !node.wasSkipped && (inTimeWindow || forcedWarning));
+        
+        if (shouldBeWarning && !node.inWarningPhase) {
+            node.inWarningPhase = true;
+            timelineNeedsRender = true;
+        } else if (!shouldBeWarning && node.inWarningPhase) {
+            node.inWarningPhase = false;
+            node.inCooldown = false;
+            timelineNeedsRender = true;
+        }
+
+        if (shouldBeWarning && exactRemainingMs <= 0 && !node.inCooldown) {
+            node.inCooldown = true;
+        }
+
+        // Eğer 5 saniye aşıldıysa (ghost faz bittiyse) VEYA kullanıcı atla dediyse bir sonraki aşamaya geçilir
+        if (exactRemainingMs <= -5000 || (exactRemainingMs <= 0 && (node.type !== 'work' || node.wasSkipped)) || (exactRemainingMs <= 0 && !shouldBeWarning)) {
             node.state = 'completed';
+            node.inWarningPhase = false;
+            node.inCooldown = false;
             timelineNeedsRender = true;
             lastCompletedType = node.type;
+            
+            let overflowMs = (exactRemainingMs < 0) ? -exactRemainingMs : 0;
+            if (overflowMs > 5000) overflowMs = 5000;
 
             activeNodeIndex++;
             if (activeNodeIndex < nodes.length) {
                 activateNode(activeNodeIndex);
+                nodes[activeNodeIndex].expectedEndAt -= overflowMs;
+                if (overflowMs > 0) {
+                    nodes[activeNodeIndex].visualRemaining = nodes[activeNodeIndex].duration; 
+                }
                 fireNotification(lastCompletedType);
             } else {
                 isRunning = false;
@@ -468,7 +620,7 @@ function tick() {
                 releaseWakeLock();
                 manageStartButtonState();
                 manageEmergencyButtonState();
-                fireNotification(lastCompletedType); // son bildirim trigger'ı
+                fireNotification(lastCompletedType);
                 break;
             }
         } else {
@@ -525,6 +677,13 @@ function manageEmergencyButtonState() {
 function updateDisplays() {
     totalElapsedDisplay.textContent = formatTime(totalElapsedSeconds);
     totalWorkDisplay.textContent    = formatTime(totalWorkSeconds);
+    
+    let totalWorkPlanned = 0;
+    let totalPlanned = 0;
+    for (let i = 0; i < nodes.length; i++) {
+        totalPlanned += nodes[i].duration;
+        if (nodes[i].type === 'work') totalWorkPlanned += nodes[i].duration;
+    }
 
     let displayEmergencyMs = emergencyBreakMs;
     if (isEmergencyBreak && emergencyBreakStartTime !== null) {
@@ -533,14 +692,9 @@ function updateDisplays() {
     document.getElementById('emergencyTimeDisplay').textContent =
         `(+${formatMMSS(Math.floor(displayEmergencyMs / 1000))})`;
 
-    let wc = 0, bc = 0;
-    for (let i = 0; i < nodes.length; i++) {
-        if (nodes[i].state === 'completed') {
-            if (nodes[i].type === 'work') wc++;
-            else bc++;
-        }
-    }
-    document.getElementById('sessionStatsDisplay').textContent = `W:${wc} / B:${bc}`;
+    const wMins = Math.floor(totalWorkPlanned / 60);
+    const tMins = Math.floor(totalPlanned / 60);
+    document.getElementById('sessionStatsDisplay').textContent = `W:${wMins} / T:${tMins}`;
 }
 
 function updateInputDisplay() {
@@ -691,10 +845,17 @@ function toggleEmergencyBreak() {
         dots.forEach(d => d.classList.replace('bg-red-500','bg-emerald-500'));
         text.textContent = "DEVAM ET";
         disp.classList.remove('hidden');
+        
+        lastTickTime = Date.now();
         if (!isRunning) timerWorker.postMessage('start');
     } else {
         const pauseDuration = Date.now() - emergencyBreakStartTime;
         emergencyBreakMs += pauseDuration;
+        
+        const additionalSeconds = Math.floor(emergencyBreakMs / 1000);
+        totalElapsedSeconds += additionalSeconds;
+        
+        emergencyBreakMs = 0;
         emergencyBreakStartTime = null;
 
         if (isRunning && activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
@@ -706,7 +867,14 @@ function toggleEmergencyBreak() {
         icon.className = "w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform";
         dots.forEach(d => d.classList.replace('bg-emerald-500','bg-red-500'));
         text.textContent = "ACİL MOLA";
+        
+        disp.classList.add('hidden');
+        disp.textContent = '(+00:00)';
+        
+        lastTickTime = Date.now();
         if (!isRunning) timerWorker.postMessage('stop');
+        
+        updateDisplays();
     }
     
     setNumpadState(false);
@@ -716,30 +884,46 @@ function toggleEmergencyBreak() {
 // SUGGESTION
 // ═══════════════════════════════════════════════════════
 function recalculateSuggestionState() {
-    if (nodes.length === 0) {
-        nextNodeType = 'work'; suggestedValue = '';
+    const sequence = [1, 1, 1, 1, 2, 2, 2, 2, 4, 4];
+    const step = nodes.length;
+
+    if (step === 0) {
+        nextNodeType = 'work';
+        suggestedValue = '1';
+        isSequenceBroken = false;
     } else {
         const last = nodes[nodes.length - 1];
+        
         if (last.type === 'work') {
             nextNodeType = 'break';
-            const wMins = last.duration / 60;
-            if (wMins <= 8) {
-                suggestedValue = Math.max(1, Math.ceil(wMins / 2)).toString();
+            
+            if (!isSequenceBroken && step < sequence.length) {
+                suggestedValue = sequence[step].toString();
             } else {
-                const lb = [...nodes].reverse().find(n => n.type === 'break');
-                const bMins = lb ? lb.duration / 60 : 0;
-                suggestedValue = Math.max(1, Math.round(wMins/3 + 1 + 0.2*bMins)).toString();
+                const wMins = last.duration / 60;
+                if (wMins <= 8) {
+                    suggestedValue = Math.max(1, Math.ceil(wMins / 2)).toString();
+                } else {
+                    const lb = [...nodes].reverse().find(n => n.type === 'break');
+                    const bMins = lb ? lb.duration / 60 : 0;
+                    suggestedValue = Math.max(1, Math.round(wMins/3 + 1 + 0.2*bMins)).toString();
+                }
             }
         } else {
             nextNodeType = 'work';
-            const lw = [...nodes].reverse().find(n => n.type === 'work');
-            if (lw) {
-                const m = lw.duration / 60;
-                if (m <= 4)       suggestedValue = Math.max(1, Math.round(m*2)).toString();
-                else if (m < 30)  suggestedValue = Math.max(m+1, Math.round(-0.0152*m*m + 1.488*m + 2.112)).toString();
-                else              suggestedValue = Math.max(m+1, Math.round(m*1.1)).toString();
+            
+            if (!isSequenceBroken && step < sequence.length) {
+                suggestedValue = sequence[step].toString();
             } else {
-                suggestedValue = '';
+                const lw = [...nodes].reverse().find(n => n.type === 'work');
+                if (lw) {
+                    const m = lw.duration / 60;
+                    if (m <= 4)       suggestedValue = Math.max(1, Math.round(m*2)).toString();
+                    else if (m < 30)  suggestedValue = Math.max(m+1, Math.round(-0.0152*m*m + 1.488*m + 2.112)).toString();
+                    else              suggestedValue = Math.max(m+1, Math.round(m*1.1)).toString();
+                } else {
+                    suggestedValue = '1';
+                }
             }
         }
     }
@@ -774,8 +958,14 @@ function handleAddToggle() {
     getAudioContext();
     let minutes = parseInt(currentInputValue, 10);
     if (isNaN(minutes) || minutes <= 0) {
-        if (suggestedValue) minutes = parseInt(suggestedValue, 10);
-        else return;
+        if (suggestedValue) {
+            minutes = parseInt(suggestedValue, 10);
+        } else return;
+    } else {
+        // Eğer girilen değer tavsiye edilenden farklıysa başlangıç listesini iptal edip formüle geç
+        if (suggestedValue && minutes !== parseInt(suggestedValue, 10)) {
+            isSequenceBroken = true;
+        }
     }
     addNode(nextNodeType, minutes);
     currentInputValue = '';
@@ -787,6 +977,10 @@ function handleAddToggle() {
 // ═══════════════════════════════════════════════════════
 function promptDeleteLastNode() {
     if (nodes.length === 0) return;
+    
+    const lastNode = nodes[nodes.length - 1];
+    if (isRunning && lastNode.state === 'active') return;
+
     isConfirmDeleteOpen = true;
     const modal = document.getElementById('deleteConfirmModal');
     const card  = document.getElementById('deleteConfirmCard');
@@ -834,10 +1028,11 @@ function deleteNode(id) {
     }
     renderTimeline();
     recalculateSuggestionState();
+    updateDisplays();
 }
 
 // ═══════════════════════════════════════════════════════
-// TIMELINE RENDER
+// TIMELINE RENDER (Dynamic +1 DK Styling)
 // ═══════════════════════════════════════════════════════
 function renderTimeline() {
     nodesWrapper.innerHTML = `<div class="absolute left-7 top-0 -bottom-[50px] w-px border-l-2 border-dashed border-slate-700 z-0"></div>`;
@@ -856,6 +1051,9 @@ function renderTimeline() {
     
     nodes.forEach((node, index) => {
         const el = document.createElement('div');
+        
+        const isWarning = node.inWarningPhase;
+
         el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out relative z-10 ${node.state==='completed' ? 'completed-node' : ''}`;
         el.id = `node-${node.id}`;
         const shapeClass = node.type === 'work' ? 'rounded-2xl' : 'rounded-full';
@@ -867,7 +1065,7 @@ function renderTimeline() {
             bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-900/50' : 'bg-teal-600 shadow-teal-900/50';
         }
         
-        const activeClass = node.state === 'active' ? 'active-node' : '';
+        let activeClass = node.state === 'active' && !isWarning ? 'active-node' : '';
         const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500';
         const label       = node.type === 'work' ? 'Çalışma' : 'Mola';
         
@@ -879,46 +1077,82 @@ function renderTimeline() {
             bCount++;
             badgeCount = bCount;
         }
-        const badge       = (node.type === 'work' ? 'W' : 'B') + badgeCount;
-        
-        const isLast      = index === nodes.length - 1;
-        const delBtn      = isLast ? `
-            <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            </button>` : '';
+        const badge = (node.type === 'work' ? 'W' : 'B') + badgeCount;
 
-        const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md";
-        const skipBtn = (node.state === 'active') ? `<button onclick="skipActiveNode()" class="${skipBtnClass}">ATLA</button>` : '';
-
-        el.innerHTML = `
-            <div class="relative flex-shrink-0 flex justify-center w-14">
-                <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}">
-                    <span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span>
-                </div>
-            </div>
-            <div class="flex items-center w-full bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50 pr-2">
-                <div class="flex-1 flex flex-col">
-                    <div class="flex justify-between items-start mb-1 pr-2">
-                        <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
-                        <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
+        if (isWarning) {
+            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            let addedText = "+1 DK";
+            if (node.addedMinutes >= 5) addedText = "MAX";
+            else if (node.addedMinutes > 0) addedText = `+${node.addedMinutes} DK`;
+            
+            el.innerHTML = `
+                <div class="relative flex-shrink-0 flex justify-center w-14">
+                    <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 warning-node">
+                        <span class="font-bold text-xs text-white opacity-70 keep-white">${badge}</span>
                     </div>
-                    <div class="flex justify-between items-end pr-2">
-                        <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
-                            ${formatMMSS(node.remaining)}
+                </div>
+                <div class="flex items-center w-full warning-bg text-white p-4 rounded-2xl cursor-pointer warning-node transition-colors duration-300 select-none" onclick="addOneMinute('${node.id}', this)">
+                    <div class="flex-1 flex justify-between items-center pr-2 pointer-events-none">
+                        <div class="flex flex-col">
+                            <span class="font-bold uppercase text-sm text-amber-100">${label}</span>
+                            <div class="text-3xl font-bold font-mono tracking-tighter leading-none" id="time-${node.id}">
+                                ${formatMMSS(displaySecs)}
+                            </div>
                         </div>
-                        ${skipBtn}
+                        <div class="add-btn-text text-3xl font-black tracking-tight drop-shadow-md transition-all duration-200">${addedText}</div>
+                    </div>
+                </div>`;
+        } else {
+            let wrapperBgClass = 'bg-slate-800/80 border-slate-700/50';
+            if (isLight) wrapperBgClass = 'bg-white border-slate-200';
+            
+            const isLast = index === nodes.length - 1;
+            const showDelete = isLast && !(isRunning && node.state === 'active');
+            
+            const delBtn = showDelete ? `
+                <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>` : '';
+
+            const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md";
+            const skipBtn = (node.state === 'active') ? `<button onclick="skipActiveNode()" class="${skipBtnClass}">ATLA</button>` : '';
+
+            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+
+            el.innerHTML = `
+                <div class="relative flex-shrink-0 flex justify-center w-14">
+                    <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}">
+                        <span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span>
                     </div>
                 </div>
-                ${delBtn}
-            </div>`;
+                <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border pr-2 transition-colors duration-300">
+                    <div class="flex-1 flex flex-col">
+                        <div class="flex justify-between items-start mb-1 pr-2">
+                            <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
+                            <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
+                        </div>
+                        <div class="flex justify-between items-end pr-2">
+                            <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
+                                ${formatMMSS(displaySecs)}
+                            </div>
+                            ${skipBtn}
+                        </div>
+                    </div>
+                    ${delBtn}
+                </div>`;
+        }
         nodesWrapper.appendChild(el);
     });
 }
 
 function updateActiveNodeDisplay() {
     if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
-        const el = document.getElementById(`time-${nodes[activeNodeIndex].id}`);
-        if (el) el.textContent = formatMMSS(nodes[activeNodeIndex].remaining);
+        const node = nodes[activeNodeIndex];
+        const el = document.getElementById(`time-${node.id}`);
+        if (el) {
+            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            el.textContent = formatMMSS(displaySecs);
+        }
     }
 }
 
@@ -930,7 +1164,7 @@ function addNode(type, minutes) {
     const newNode = {
         id: Date.now() + Math.random().toString(36).slice(2,9),
         type, duration: minutes*60, remaining: minutes*60, state: 'pending',
-        expectedEndAt: 0
+        expectedEndAt: 0, inWarningPhase: false, inCooldown: false, wasSkipped: false
     };
     nodes.push(newNode);
     if (isRunning && activeNodeIndex >= nodes.length - 1) {
@@ -939,6 +1173,7 @@ function addNode(type, minutes) {
     }
     renderTimeline();
     manageStartButtonState();
+    updateDisplays();
     
     if (numpadOpen) {
         scrollToBottom();
@@ -957,11 +1192,11 @@ function startGlobalTimer() {
     acquireWakeLock();
 
     isRunning = true;
+    lastTickTime = Date.now();
+    remainderMs = 0;
 
-    topStartBtn.classList.replace('bg-emerald-600','bg-slate-700');
-    topStartBtn.classList.replace('text-white','text-slate-500');
-    topStartBtn.textContent = 'AKIŞTA';
-    topStartBtn.disabled = true;
+    const startCont = document.getElementById('startContainer');
+    if(startCont) startCont.classList.add('hidden');
 
     if (activeNodeIndex < 0 || nodes[activeNodeIndex].state === 'pending') {
         if (activeNodeIndex < 0) activeNodeIndex = 0;
@@ -1009,10 +1244,12 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e 
 // ═══════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════
+recalculateSuggestionState();
 renderTimeline();
 updateInputDisplay();
 manageStartButtonState();
 manageEmergencyButtonState();
+updateDisplays();
 
 setTimeout(() => {
     setNumpadState(true);
