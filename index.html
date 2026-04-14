@@ -478,7 +478,6 @@ function skipActiveNode() {
 
 function addOneMinute(id, btnElement) {
     getAudioContext();
-    playSparkleSound();
     
     const index = nodes.findIndex(n => n.id === id);
     if (index === -1) return;
@@ -487,13 +486,17 @@ function addOneMinute(id, btnElement) {
     if (!node.addedMinutes) node.addedMinutes = 0;
     if (node.addedMinutes >= 5) return; 
     
+    playSparkleSound();
     node.addedMinutes++;
     
-    if (btnElement && node.addedMinutes <= 5) {
+    if (btnElement) {
+        if (node.addedMinutes >= 5) {
+            btnElement.classList.add('pointer-events-none');
+        }
+        
         const textEl = btnElement.querySelector('.add-btn-text');
         if (textEl) {
-            let nextDisplay = node.addedMinutes + 1;
-            if (nextDisplay > 5) nextDisplay = 5;
+            let nextDisplay = node.addedMinutes < 5 ? node.addedMinutes + 1 : 5;
             
             textEl.textContent = `+${nextDisplay} DK`;
             textEl.classList.add('text-emerald-200', 'scale-125');
@@ -1117,10 +1120,10 @@ function renderTimeline() {
         if (isWarning) {
             const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
             
-            // Sıradaki eklenecek DK'yı Göster (Eğer hiç tıklanmadıysa +1, 1 kez tıklandıysa +2 DK)
             let nextDisplay = (node.addedMinutes || 0) + 1;
             if (nextDisplay > 5) nextDisplay = 5;
             let addedText = `+${nextDisplay} DK`;
+            let pointerClass = (node.addedMinutes >= 5) ? 'pointer-events-none' : '';
             
             el.innerHTML = `
                 <div class="relative flex-shrink-0 flex justify-center w-14">
@@ -1128,7 +1131,7 @@ function renderTimeline() {
                         <span class="font-bold text-xs text-white opacity-70 keep-white">${badge}</span>
                     </div>
                 </div>
-                <div class="flex items-center w-full warning-bg text-white p-4 rounded-2xl cursor-pointer warning-node transition-colors duration-300 select-none" onclick="addOneMinute('${node.id}', this)">
+                <div class="flex items-center w-full warning-bg text-white p-4 rounded-2xl cursor-pointer warning-node transition-colors duration-300 select-none ${pointerClass}" onclick="addOneMinute('${node.id}', this)">
                     <div class="flex-1 flex justify-between items-center pr-2 pointer-events-none">
                         <div class="flex flex-col">
                             <span class="font-bold uppercase text-sm text-amber-100">${label}</span>
