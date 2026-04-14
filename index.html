@@ -311,6 +311,7 @@ function playSparkleSound() {
     try {
         const ctx = getAudioContext();
         const now = ctx.currentTime;
+        // Tatlı ve kısa üç notalı ışıltı efekti (Sparkle)
         [800, 1200, 1600].forEach((freq, i) => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
@@ -405,17 +406,9 @@ document.addEventListener('visibilitychange', async () => {
 });
 
 // ═══════════════════════════════════════════════════════
-// NOTIFICATIONS
+// EXTENSION NOTIFICATIONS & BADGE
 // ═══════════════════════════════════════════════════════
-function requestNotificationPermission() {
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-    }
-}
-
 function fireNotification(completedType) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    
     let title, body;
     const allDone = activeNodeIndex >= nodes.length;
     
@@ -431,17 +424,38 @@ function fireNotification(completedType) {
     }
 
     try {
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.ready.then(reg => {
-                reg.showNotification(title, {
-                    body: body, icon: './icon-192.png', tag: 'dopamine-timer',
-                    renotify: true, vibrate: [200, 100, 200]
-                });
+        if (typeof chrome !== 'undefined' && chrome.notifications) {
+            chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'icon-192.png',
+                title: title,
+                message: body,
+                priority: 2
             });
-        } else {
-            new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
+        } 
+        else if ('Notification' in window && Notification.permission === 'granted') {
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.ready.then(reg => {
+                    reg.showNotification(title, { body: body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true, vibrate: [200, 100, 200] });
+                });
+            } else {
+                new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
+            }
         }
     } catch(e) { console.warn('Notification hatası:', e); }
+}
+
+function updateExtensionBadge(text, type) {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const color = type === 'work' ? '#4f46e5' : '#0d9488';
+        chrome.runtime.sendMessage({ type: 'UPDATE_BADGE', text: text, color: color }).catch(() => {});
+    }
+}
+
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -471,15 +485,17 @@ function addOneMinute(id, btnElement) {
     
     const node = nodes[index];
     if (!node.addedMinutes) node.addedMinutes = 0;
-    
     if (node.addedMinutes >= 5) return; 
     
     node.addedMinutes++;
     
-    if (btnElement) {
+    if (btnElement && node.addedMinutes <= 5) {
         const textEl = btnElement.querySelector('.add-btn-text');
         if (textEl) {
-            textEl.textContent = `+${node.addedMinutes} DK`;
+            let nextDisplay = node.addedMinutes + 1;
+            if (nextDisplay > 5) nextDisplay = 5;
+            
+            textEl.textContent = `+${nextDisplay} DK`;
             textEl.classList.add('text-emerald-200', 'scale-125');
             setTimeout(() => {
                 textEl.classList.remove('text-emerald-200', 'scale-125');
@@ -505,7 +521,7 @@ function addOneMinute(id, btnElement) {
     }
     
     if (node.addedMinutes >= 5) {
-        node.keepWarningUntil = Date.now() + 500;
+        node.keepWarningUntil = Date.now() + 1000;
         setTimeout(() => {
             if (nodes.find(n => n.id === id)) {
                 node.inWarningPhase = false;
@@ -513,7 +529,7 @@ function addOneMinute(id, btnElement) {
                 node.keepWarningUntil = 0;
                 renderTimeline();
             }
-        }, 500);
+        }, 1000);
     } else {
         node.keepWarningUntil = Date.now() + 2000;
     }
@@ -588,6 +604,15 @@ function tick() {
 
         node.remaining = newRemaining;
 
+        // Extension Badge Update
+        if (exactRemainingMs >= 0) {
+            let mins = Math.floor(newRemaining / 60);
+            let badgeTxt = mins > 0 ? mins.toString() : (newRemaining > 0 ? '<1' : '0');
+            updateExtensionBadge(badgeTxt, node.type);
+        } else {
+            updateExtensionBadge('', 'work');
+        }
+
         const inTimeWindow = (exactRemainingMs <= 15000 && exactRemainingMs > -5000);
         const forcedWarning = (node.keepWarningUntil && node.keepWarningUntil > now);
         const shouldBeWarning = (node.type === 'work' && !node.wasSkipped && (inTimeWindow || forcedWarning));
@@ -627,6 +652,7 @@ function tick() {
                 isRunning = false;
                 timerWorker.postMessage('stop');
                 releaseWakeLock();
+                updateExtensionBadge('', 'work');
                 manageStartButtonState();
                 manageEmergencyButtonState();
                 fireNotification(lastCompletedType);
@@ -1029,6 +1055,7 @@ function deleteNode(id) {
                 isRunning = false;
                 timerWorker.postMessage('stop');
                 releaseWakeLock();
+                updateExtensionBadge('', 'work');
             }
             manageStartButtonState();
             manageEmergencyButtonState();
@@ -1089,8 +1116,11 @@ function renderTimeline() {
 
         if (isWarning) {
             const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
-            let addedText = "+1 DK";
-            if (node.addedMinutes > 0) addedText = `+${node.addedMinutes} DK`;
+            
+            // Sıradaki eklenecek DK'yı Göster (Eğer hiç tıklanmadıysa +1, 1 kez tıklandıysa +2 DK)
+            let nextDisplay = (node.addedMinutes || 0) + 1;
+            if (nextDisplay > 5) nextDisplay = 5;
+            let addedText = `+${nextDisplay} DK`;
             
             el.innerHTML = `
                 <div class="relative flex-shrink-0 flex justify-center w-14">
@@ -1117,7 +1147,7 @@ function renderTimeline() {
             const showDelete = isLast && !(isRunning && node.state === 'active');
             
             const delBtn = showDelete ? `
-                <button onclick="executeDeleteLastNode()" class="p-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center">
+                <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>` : '';
 
@@ -1138,11 +1168,11 @@ function renderTimeline() {
                             <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
                             <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
                         </div>
-                        <div class="flex justify-between items-end">
+                        <div class="flex justify-between items-center w-full">
                             <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
                                 ${formatMMSS(displaySecs)}
                             </div>
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center">
                                 ${skipBtn}
                                 ${delBtn}
                             </div>
