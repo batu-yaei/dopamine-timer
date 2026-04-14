@@ -1,5 +1,5 @@
 // sw.js — Dopamine Timer Service Worker
-const CACHE = 'dopamine-v2';
+const CACHE = 'dopamine-v3';
 const ASSETS = [
     './',
     './index.html',
