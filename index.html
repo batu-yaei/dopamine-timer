@@ -72,7 +72,7 @@
     </div>
 
     <!-- TIMELINE -->
-    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-40">
+    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-[400px]">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
 
@@ -285,15 +285,17 @@ function fireNotification(completedType) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     
     let title, body;
-    if (completedType === 'all') {
+    const allDone = activeNodeIndex >= nodes.length;
+    
+    if (allDone) {
         title = '🏆 Tüm süre tamamlandı!';
         body  = `${formatTime(totalWorkSeconds)} çalışma. Harika iş!`;
     } else if (completedType === 'work') {
         title = '✅ Çalışma bitti!';
-        body  = `Mola zamanı geldi.`;
+        body  = `Mola zamanı — ${nodes[activeNodeIndex].duration / 60} dk`;
     } else {
         title = '💪 Mola bitti!';
-        body  = `Çalışmaya devam!`;
+        body  = `Çalışmaya devam — ${nodes[activeNodeIndex].duration / 60} dk`;
     }
 
     try {
@@ -358,7 +360,7 @@ function tick() {
                 releaseWakeLock();
                 manageStartButtonState();
                 manageEmergencyButtonState();
-                fireNotification('all');
+                fireNotification(lastCompletedType); // son bildirim trigger'ı
                 break;
             }
         } else {
@@ -444,11 +446,18 @@ function updateInputDisplay() {
     }
 }
 
+function scrollToBottom() {
+    setTimeout(() => {
+        timelineContainer.scrollTo({ top: timelineContainer.scrollHeight, behavior: 'smooth' });
+    }, 50);
+}
+
 function scrollToActive() {
     setTimeout(() => {
         if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
             const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
-            if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // block: 'start' ile aktif ögeyi ekranın en üstüne hizalar
+            if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
             timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -473,11 +482,18 @@ let startNumpadY = 0;
 let initialTranslateY = 0;
 
 function setNumpadState(open) {
+    const wasOpen = numpadOpen;
     numpadOpen = open;
     const contentHeight = numpadContent.offsetHeight;
+    
     numpadWrapper.style.transition = 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)';
     numpadWrapper.style.transform = `translateY(${open ? 0 : contentHeight}px)`;
-    if (!open) scrollToActive();
+    
+    if (open && !wasOpen) {
+        scrollToBottom();
+    } else if (!open && wasOpen) {
+        scrollToActive();
+    }
 }
 
 function toggleNumpad() {
@@ -759,7 +775,10 @@ function addNode(type, minutes) {
     }
     renderTimeline();
     manageStartButtonState();
-    setTimeout(() => { timelineContainer.scrollTo({top: timelineContainer.scrollHeight, behavior:'smooth'}); }, 50);
+    
+    if (numpadOpen) {
+        scrollToBottom();
+    }
 }
 
 // ═══════════════════════════════════════════════════════
