@@ -161,7 +161,6 @@
     </div>
 
     <!-- TIMELINE -->
-    <!-- Transition class removed so padding change is instant and scroll calculations are perfectly aligned -->
     <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
@@ -410,6 +409,16 @@ function activateNode(index) {
     nodes[index].expectedEndAt = Date.now() + nodes[index].remaining * 1000;
 }
 
+// Aktif süreyi atlamak için fonksiyon
+function skipActiveNode() {
+    getAudioContext();
+    if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+        nodes[activeNodeIndex].remaining = 0;
+        nodes[activeNodeIndex].expectedEndAt = Date.now();
+        tick();
+    }
+}
+
 // ═══════════════════════════════════════════════════════
 // TICK — Catch-up Akıl Yürütmesi İle
 // ═══════════════════════════════════════════════════════
@@ -595,8 +604,6 @@ function setNumpadState(open) {
     const contentHeight = numpadContent.offsetHeight;
     const wrapperHeight = numpadWrapper.offsetHeight;
     
-    // Sabit piksel padding yerine, tuş panelinin gerçek dom yüksekliğini
-    // okuyarak timeline'ın alt sınırını dinamik olarak hizalıyoruz. Ekstra olarak 24px (+p-6) veriyoruz.
     if (open) {
         timelineContainer.style.paddingBottom = (wrapperHeight + 24) + 'px';
     } else {
@@ -833,7 +840,7 @@ function deleteNode(id) {
 // TIMELINE RENDER
 // ═══════════════════════════════════════════════════════
 function renderTimeline() {
-    nodesWrapper.innerHTML = `<div class="absolute left-7 top-0 bottom-0 w-px border-l-2 border-dashed border-slate-700 z-0"></div>`;
+    nodesWrapper.innerHTML = `<div class="absolute left-7 top-0 -bottom-[50px] w-px border-l-2 border-dashed border-slate-700 z-0"></div>`;
     if (nodes.length === 0) {
         nodesWrapper.innerHTML += `
             <div class="flex items-center gap-6 opacity-50 relative z-10">
@@ -845,6 +852,7 @@ function renderTimeline() {
     
     let wCount = 0;
     let bCount = 0;
+    let isLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
     
     nodes.forEach((node, index) => {
         const el = document.createElement('div');
@@ -853,7 +861,7 @@ function renderTimeline() {
         const shapeClass = node.type === 'work' ? 'rounded-2xl' : 'rounded-full';
         
         let bgClass = "";
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        if (isLight) {
             bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-600/30' : 'bg-teal-600 shadow-teal-600/30';
         } else {
             bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-900/50' : 'bg-teal-600 shadow-teal-900/50';
@@ -878,6 +886,10 @@ function renderTimeline() {
             <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>` : '';
+
+        const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md";
+        const skipBtn = (node.state === 'active') ? `<button onclick="skipActiveNode()" class="${skipBtnClass}">ATLA</button>` : '';
+
         el.innerHTML = `
             <div class="relative flex-shrink-0 flex justify-center w-14">
                 <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}">
@@ -886,12 +898,15 @@ function renderTimeline() {
             </div>
             <div class="flex items-center w-full bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50 pr-2">
                 <div class="flex-1 flex flex-col">
-                    <div class="flex justify-between items-center mb-1 pr-2">
+                    <div class="flex justify-between items-start mb-1 pr-2">
                         <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
                         <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
                     </div>
-                    <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300" id="time-${node.id}">
-                        ${formatMMSS(node.remaining)}
+                    <div class="flex justify-between items-end pr-2">
+                        <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
+                            ${formatMMSS(node.remaining)}
+                        </div>
+                        ${skipBtn}
                     </div>
                 </div>
                 ${delBtn}
