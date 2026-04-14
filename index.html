@@ -842,6 +842,10 @@ function renderTimeline() {
             </div>`;
         return;
     }
+    
+    let wCount = 0;
+    let bCount = 0;
+    
     nodes.forEach((node, index) => {
         const el = document.createElement('div');
         el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out relative z-10 ${node.state==='completed' ? 'completed-node' : ''}`;
@@ -858,7 +862,17 @@ function renderTimeline() {
         const activeClass = node.state === 'active' ? 'active-node' : '';
         const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500';
         const label       = node.type === 'work' ? 'Çalışma' : 'Mola';
-        const badge       = node.type === 'work' ? 'W' : 'B';
+        
+        let badgeCount = 0;
+        if (node.type === 'work') {
+            wCount++;
+            badgeCount = wCount;
+        } else {
+            bCount++;
+            badgeCount = bCount;
+        }
+        const badge       = (node.type === 'work' ? 'W' : 'B') + badgeCount;
+        
         const isLast      = index === nodes.length - 1;
         const delBtn      = isLast ? `
             <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
