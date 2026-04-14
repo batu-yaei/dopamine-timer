@@ -1,5 +1,5 @@
 // sw.js — Dopamine Timer Service Worker
-const CACHE = 'dopamine-v5';
+const CACHE = 'dopamine-v7';
 const ASSETS = [
     './',
     './index.html',
@@ -35,23 +35,6 @@ self.addEventListener('fetch', e => {
                 return response;
             }).catch(() => cached); 
             return cached || networkFetch;
-        })
-    );
-});
-
-self.addEventListener('notificationclick', function(event) {
-    event.notification.close();
-    event.waitUntil(
-        clients.matchAll({ type: 'window' }).then(windowClients => {
-            for (let i = 0; i < windowClients.length; i++) {
-                let client = windowClients[i];
-                if (client.url.indexOf(self.location.origin) !== -1 && 'focus' in client) {
-                    return client.focus();
-                }
-            }
-            if (clients.openWindow) {
-                return clients.openWindow('./index.html');
-            }
         })
     );
 });
