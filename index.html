@@ -471,13 +471,12 @@ function addOneMinute(id, btnElement) {
     
     const node = nodes[index];
     if (!node.addedMinutes) node.addedMinutes = 0;
+    
     if (node.addedMinutes >= 5) return; 
     
     node.addedMinutes++;
     
-    node.keepWarningUntil = Date.now() + 2000;
-    
-    if (btnElement && node.addedMinutes < 5) {
+    if (btnElement) {
         const textEl = btnElement.querySelector('.add-btn-text');
         if (textEl) {
             textEl.textContent = `+${node.addedMinutes} DK`;
@@ -506,10 +505,17 @@ function addOneMinute(id, btnElement) {
     }
     
     if (node.addedMinutes >= 5) {
-        node.inWarningPhase = false;
-        node.inCooldown = false;
-        node.keepWarningUntil = 0;
-        renderTimeline();
+        node.keepWarningUntil = Date.now() + 500;
+        setTimeout(() => {
+            if (nodes.find(n => n.id === id)) {
+                node.inWarningPhase = false;
+                node.inCooldown = false;
+                node.keepWarningUntil = 0;
+                renderTimeline();
+            }
+        }, 500);
+    } else {
+        node.keepWarningUntil = Date.now() + 2000;
     }
 }
 
@@ -1084,8 +1090,7 @@ function renderTimeline() {
         if (isWarning) {
             const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
             let addedText = "+1 DK";
-            if (node.addedMinutes >= 5) addedText = "MAX";
-            else if (node.addedMinutes > 0) addedText = `+${node.addedMinutes} DK`;
+            if (node.addedMinutes > 0) addedText = `+${node.addedMinutes} DK`;
             
             el.innerHTML = `
                 <div class="relative flex-shrink-0 flex justify-center w-14">
