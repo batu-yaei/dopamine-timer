@@ -426,7 +426,7 @@ function updateInputDisplay() {
 }
 
 // ═══════════════════════════════════════════════════════
-// INPUT
+// INPUT & UI HELPERS
 // ═══════════════════════════════════════════════════════
 function appendNum(num) {
     getAudioContext();
@@ -436,12 +436,9 @@ function deleteNum() {
     getAudioContext();
     currentInputValue = currentInputValue.slice(0,-1); updateInputDisplay();
 }
-function toggleNumpad() {
-    isNumpadExpanded = !isNumpadExpanded;
-    document.getElementById('numpadContent').classList.toggle('hidden', !isNumpadExpanded);
-    document.getElementById('numpadToggleIcon').style.transform = isNumpadExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
-    
-    if (!isNumpadExpanded) {
+
+function scrollToActive() {
+    setTimeout(() => {
         if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
             const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
             if (activeEl) {
@@ -450,6 +447,24 @@ function toggleNumpad() {
         } else {
             timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
         }
+    }, 50);
+}
+
+function toggleNumpad() {
+    isNumpadExpanded = !isNumpadExpanded;
+    document.getElementById('numpadContent').classList.toggle('hidden', !isNumpadExpanded);
+    document.getElementById('numpadToggleIcon').style.transform = isNumpadExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    
+    if (!isNumpadExpanded) {
+        scrollToActive();
+    }
+}
+
+function forceCloseNumpadAndScroll() {
+    if (isNumpadExpanded) {
+        toggleNumpad();
+    } else {
+        scrollToActive();
     }
 }
 
@@ -491,6 +506,8 @@ function toggleEmergencyBreak() {
         text.textContent = "ACİL MOLA";
         if (!isRunning) timerWorker.postMessage('stop');
     }
+    
+    forceCloseNumpadAndScroll();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -712,6 +729,8 @@ function startGlobalTimer() {
     
     manageEmergencyButtonState();
     timerWorker.postMessage('start');
+    
+    forceCloseNumpadAndScroll();
 }
 
 // ═══════════════════════════════════════════════════════
