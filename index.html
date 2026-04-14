@@ -19,6 +19,9 @@
             background-color: #0f172a; 
             color: #f8fafc; 
             overscroll-behavior-y: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
         }
 
         .no-scrollbar::-webkit-scrollbar {
@@ -47,6 +50,11 @@
         .numpad-btn:active {
             transform: scale(0.95);
             background-color: #334155;
+        }
+        
+        input, textarea {
+            -webkit-user-select: auto;
+            user-select: auto;
         }
     </style>
 </head>
@@ -89,7 +97,7 @@
         </div>
 
         <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-32">
-            <div class="absolute left-[51px] top-0 bottom-0 w-0.5 border-l-2 border-dashed border-slate-700 z-0"></div>
+            <!-- Node'lar buraya js ile basılıyor. Hizalama js içinden yönetilecek -->
             <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
         </div>
 
@@ -164,7 +172,6 @@
 
         let audioCtx = null;
         let timerWorker = null;
-        let scheduledAudioNodes = []; 
 
         const workerCode = `
             let timer = null;
@@ -215,87 +222,88 @@
             return audioCtx;
         }
 
-        function scheduleBeep(type, delaySeconds) {
+        // --- Just In Time Audio Playback ---
+        function playCountdown(type) {
             try {
                 const ctx = getAudioContext();
-                const startTime = ctx.currentTime + delaySeconds;
-                
-                let oscs = [];
-                let gains = [];
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
 
+                if (type === 'long') {
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(400, ctx.currentTime);
+                    gain.gain.setValueAtTime(0, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(ctx.currentTime);
+                    osc.stop(ctx.currentTime + 0.8);
+                } else if (type === 'short') {
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(600, ctx.currentTime);
+                    gain.gain.setValueAtTime(0, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(ctx.currentTime);
+                    osc.stop(ctx.currentTime + 0.15);
+                }
+            } catch(e) {
+                console.warn("Countdown audio error:", e);
+            }
+        }
+
+        function playBeep(type) {
+            try {
+                const ctx = getAudioContext();
+                
                 if (type === 'break') {
-                    for(let i=0; i<4; i++) {
+                    const playDeepBeep = (startTime) => {
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
-                        osc.type = 'sine';
-                        osc.frequency.setValueAtTime(450, startTime + (i * 0.75));
                         
-                        gain.gain.setValueAtTime(0, startTime + (i * 0.75));
-                        gain.gain.linearRampToValueAtTime(0.6, startTime + (i * 0.75) + 0.05);
-                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + (i * 0.75) + 0.6);
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(450, startTime);
+                        
+                        gain.gain.setValueAtTime(0, startTime);
+                        gain.gain.linearRampToValueAtTime(0.6, startTime + 0.05);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.6);
                         
                         osc.connect(gain);
                         gain.connect(ctx.destination);
                         
-                        osc.start(startTime + (i * 0.75));
-                        osc.stop(startTime + (i * 0.75) + 0.75);
-                        
-                        oscs.push(osc);
-                        gains.push(gain);
-                    }
+                        osc.start(startTime);
+                        osc.stop(startTime + 0.75);
+                    };
+                    
+                    playDeepBeep(ctx.currentTime);
+                    playDeepBeep(ctx.currentTime + 0.75);
+                    playDeepBeep(ctx.currentTime + 1.50);
+                    playDeepBeep(ctx.currentTime + 2.25);
                 } else {
                     const osc = ctx.createOscillator();
                     const gain = ctx.createGain();
                     
                     osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(600, startTime);
-                    osc.frequency.exponentialRampToValueAtTime(1200, startTime + 0.1);
+                    osc.frequency.setValueAtTime(600, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
                     
-                    gain.gain.setValueAtTime(0, startTime);
-                    gain.gain.linearRampToValueAtTime(0.5, startTime + 0.05);
-                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 1);
+                    gain.gain.setValueAtTime(0, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
                     
                     osc.connect(gain);
                     gain.connect(ctx.destination);
                     
-                    osc.start(startTime);
-                    osc.stop(startTime + 1);
-                    
-                    oscs.push(osc);
-                    gains.push(gain);
+                    osc.start(ctx.currentTime);
+                    osc.stop(ctx.currentTime + 1);
                 }
-                
-                scheduledAudioNodes.push({ oscs, gains });
             } catch(e) {
                 console.warn("Audio error:", e);
-            }
-        }
-
-        function cancelScheduledAudio() {
-            scheduledAudioNodes.forEach(item => {
-                item.oscs.forEach(osc => {
-                    try { osc.stop(); osc.disconnect(); } catch(e){}
-                });
-                item.gains.forEach(gain => {
-                    try { gain.disconnect(); } catch(e){}
-                });
-            });
-            scheduledAudioNodes = [];
-        }
-
-        function recalculateAllSchedules() {
-            cancelScheduledAudio();
-            if (!isRunning || isEmergencyBreak) return;
-            
-            let accumulatedDelay = 0;
-            
-            for (let i = activeNodeIndex; i < nodes.length; i++) {
-                if (i < 0) continue;
-                let node = nodes[i];
-                if (node.state === 'completed') continue;
-                
-                accumulatedDelay += node.remaining;
-                scheduleBeep(node.type, accumulatedDelay);
             }
         }
 
@@ -378,8 +386,6 @@
             const innerDots = icon.querySelectorAll('div');
 
             if (isEmergencyBreak) {
-                cancelScheduledAudio(); 
-                
                 btn.classList.replace('text-red-500', 'text-emerald-500');
                 btn.classList.replace('hover:text-red-400', 'hover:text-emerald-400');
                 icon.className = "w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] relative group-active:scale-95 transition-transform";
@@ -392,8 +398,6 @@
                     timerWorker.postMessage('start');
                 }
             } else {
-                recalculateAllSchedules(); 
-                
                 btn.classList.replace('text-emerald-500', 'text-red-500');
                 btn.classList.replace('hover:text-emerald-400', 'hover:text-red-400');
                 icon.className = "w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform";
@@ -431,18 +435,12 @@
                     if (lastWorkNode) {
                         let lastWorkMins = lastWorkNode.duration / 60;
                         
-                        // Denklem 1: 4 Dakikaya kadar x2
                         if (lastWorkMins <= 4) {
                             suggestedValue = Math.max(1, Math.round(lastWorkMins * 2)).toString();
-                        } 
-                        // Denklem 2: 5'ten 29'a kadar yumuşak artış polinom eğrisi (Kalıbre Edildi)
-                        else if (lastWorkMins < 30) {
-                            // Yeni kalibre edilen eğri formülü
+                        } else if (lastWorkMins < 30) {
                             let nextWork = -0.0152 * Math.pow(lastWorkMins, 2) + 1.488 * lastWorkMins + 2.112;
                             suggestedValue = Math.max(lastWorkMins + 1, Math.round(nextWork)).toString();
-                        } 
-                        // Denklem 3: 30 ve Üzeri %10 artış
-                        else {
+                        } else {
                             let nextWork = lastWorkMins * 1.1; 
                             suggestedValue = Math.max(lastWorkMins + 1, Math.round(nextWork)).toString();
                         }
@@ -573,16 +571,16 @@
 
             renderTimeline();
             recalculateSuggestionState();
-            recalculateAllSchedules();
         }
 
         function renderTimeline() {
-            nodesWrapper.innerHTML = '';
+            // Hizalama Problemi Çözümü: Çizgi artık nodesWrapper'ın doğrudan içine z-0 ile mutlak hizalı (left-7 tam merkeze denk geliyor)
+            nodesWrapper.innerHTML = `<div class="absolute left-7 top-0 bottom-0 w-px border-l-2 border-dashed border-slate-700 z-0"></div>`;
             
             if (nodes.length === 0) {
-                nodesWrapper.innerHTML = `
-                    <div class="flex items-center gap-6 opacity-50">
-                        <div class="w-[54px] flex justify-center">
+                nodesWrapper.innerHTML += `
+                    <div class="flex items-center gap-6 opacity-50 relative z-10">
+                        <div class="w-14 flex justify-center">
                             <div class="w-3 h-3 bg-slate-600 rounded-full"></div>
                         </div>
                         <div class="text-slate-500 text-sm">Bekleniyor... Aşağıdan süre ekleyin.</div>
@@ -593,7 +591,7 @@
 
             nodes.forEach((node, index) => {
                 const el = document.createElement('div');
-                el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out ${node.state === 'completed' ? 'completed-node' : ''}`;
+                el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out relative z-10 ${node.state === 'completed' ? 'completed-node' : ''}`;
                 el.id = `node-${node.id}`;
 
                 let shapeClass = "";
@@ -615,7 +613,7 @@
                 ` : '';
 
                 el.innerHTML = `
-                    <div class="relative flex-shrink-0 flex justify-center w-[54px]">
+                    <div class="relative flex-shrink-0 flex justify-center w-14">
                         <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}">
                             <span class="text-white font-bold text-xs opacity-70">${node.type === 'work' ? 'W' : 'B'}</span>
                         </div>
@@ -637,13 +635,6 @@
                 `;
                 nodesWrapper.appendChild(el);
             });
-
-            if (activeNodeIndex !== -1 && activeNodeIndex < nodes.length) {
-                const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
-                if (activeEl) {
-                    activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }
         }
 
         function updateActiveNodeDisplay() {
@@ -676,7 +667,6 @@
 
             renderTimeline();
             manageStartButtonState();
-            recalculateAllSchedules();
 
             setTimeout(() => {
                 const container = document.getElementById('timelineContainer');
@@ -690,6 +680,9 @@
             let now = Date.now();
             let deltaMs = now - lastTickTime;
             lastTickTime = now;
+            
+            // Gerçek zaman filtresi (Eğer delta > 2sn ise cihaz uykudan uyanmış demektir, geri sayım/bildirimleri topluca çalmamak için)
+            let isRealTime = (deltaMs < 2000);
 
             if (isEmergencyBreak) {
                 emergencyBreakMs += deltaMs;
@@ -700,6 +693,7 @@
             if (!isRunning) return;
 
             remainderMs += deltaMs;
+            let lastCompletedType = null;
             let timelineUpdated = false;
 
             while (remainderMs >= 1000) {
@@ -715,8 +709,18 @@
 
                     currentNode.remaining--;
 
+                    // --- JIT (Just-In-Time) Audio Tetikleyicileri ---
+                    if (isRealTime) {
+                        if (currentNode.remaining === 10) {
+                            playCountdown('long');
+                        } else if (currentNode.remaining < 10 && currentNode.remaining > 0) {
+                            playCountdown('short');
+                        }
+                    }
+
                     if (currentNode.remaining <= 0) {
                         currentNode.state = 'completed';
+                        lastCompletedType = currentNode.type;
                         timelineUpdated = true;
                         
                         activeNodeIndex++;
@@ -736,6 +740,9 @@
                 }
             }
 
+            if (lastCompletedType) {
+                playBeep(lastCompletedType);
+            }
             if (timelineUpdated) {
                 renderTimeline();
             }
@@ -768,7 +775,6 @@
                 renderTimeline();
             }
 
-            recalculateAllSchedules();
             timerWorker.postMessage('start');
         }
 
@@ -778,9 +784,11 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('PWA Service Worker registered'))
-                    .catch(err => console.warn('PWA Service Worker error:', err));
+                navigator.serviceWorker.register('./sw.js', { scope: './' })
+                    .then(reg => {
+                        console.log('PWA Service Worker registered with scope:', reg.scope);
+                    })
+                    .catch(err => console.error('PWA Service Worker error:', err));
             });
         }
 
