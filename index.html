@@ -37,10 +37,6 @@
 </head>
 <body class="h-screen w-screen flex justify-center overflow-hidden bg-black">
 
-<audio id="silentAudio" loop playsinline>
-    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
-</audio>
-
 <div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
 
     <!-- HEADER -->
@@ -147,7 +143,7 @@ let audioCtx         = null;
 let wakeLockSentinel = null;
 
 // ═══════════════════════════════════════════════════════
-// WEB WORKER
+// WEB WORKER — Arka plan stabilitesi
 // ═══════════════════════════════════════════════════════
 const workerCode = `
     let timer = null;
@@ -175,7 +171,6 @@ const totalElapsedDisplay = document.getElementById('totalElapsedDisplay');
 const totalWorkDisplay    = document.getElementById('totalWorkDisplay');
 const topStartBtn         = document.getElementById('topStartBtn');
 const timelineContainer   = document.getElementById('timelineContainer');
-const silentAudio         = document.getElementById('silentAudio');
 
 // ═══════════════════════════════════════════════════════
 // FORMAT
@@ -191,13 +186,14 @@ function formatMMSS(s) {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUDIO
+// AUDIO (Bellek Sızıntısı Filtreli ve GC Uyumlu)
 // ═══════════════════════════════════════════════════════
 function getAudioContext() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
 }
+
 function playCountdown(type) {
     try {
         const ctx = getAudioContext();
@@ -210,6 +206,7 @@ function playCountdown(type) {
             gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.1);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
             osc.connect(gain); gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
         } else {
             osc.type = 'square';
@@ -218,10 +215,12 @@ function playCountdown(type) {
             gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
             osc.connect(gain); gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
         }
     } catch(e) { console.warn('Countdown audio:', e); }
 }
+
 function playBeep(type) {
     try {
         const ctx = getAudioContext();
@@ -234,6 +233,7 @@ function playBeep(type) {
                 gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.05);
                 gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.6);
                 osc.connect(gain); gain.connect(ctx.destination);
+                osc.onended = () => { osc.disconnect(); gain.disconnect(); };
                 osc.start(ctx.currentTime + offset); osc.stop(ctx.currentTime + offset + 0.75);
             });
         } else {
@@ -245,6 +245,7 @@ function playBeep(type) {
             gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
             osc.connect(gain); gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
         }
     } catch(e) { console.warn('Beep audio:', e); }
@@ -308,7 +309,7 @@ function activateNode(index) {
 }
 
 // ═══════════════════════════════════════════════════════
-// TICK
+// TICK — Yakalama (Catch-up) Akıl Yürütmesi İle
 // ═══════════════════════════════════════════════════════
 function tick() {
     if (isEmergencyBreak) {
@@ -317,21 +318,26 @@ function tick() {
     }
     if (!isRunning) return;
 
-    const now       = Date.now();
-    const isVisible = document.visibilityState === 'visible';
+    const now = Date.now();
     let timelineNeedsRender = false;
+    let lastCompletedType = null;
+    let didCatchUp = false;
 
     while (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
         const node = nodes[activeNodeIndex];
         const newRemaining = Math.max(0, Math.ceil((node.expectedEndAt - now) / 1000));
         const elapsed      = node.remaining - newRemaining;
 
+        // Eğer 2 saniyeden fazla zaman sıçraması varsa (uykudan uyanma durumu)
+        if (elapsed > 2) didCatchUp = true;
+
         if (elapsed > 0) {
             totalElapsedSeconds += elapsed;
             if (node.type === 'work') totalWorkSeconds += elapsed;
         }
 
-        if (isVisible && elapsed === 1) {
+        // Catch-up esnasında geri sayım seslerini spamlamamak için kilit
+        if (!didCatchUp && elapsed === 1) {
             if (newRemaining === 10)                      playCountdown('long');
             else if (newRemaining > 0 && newRemaining < 10) playCountdown('short');
         }
@@ -341,7 +347,7 @@ function tick() {
         if (node.remaining <= 0) {
             node.state = 'completed';
             timelineNeedsRender = true;
-            if (isVisible) playBeep(node.type);
+            lastCompletedType = node.type;
             fireNotification(node.type);
 
             activeNodeIndex++;
@@ -350,7 +356,6 @@ function tick() {
             } else {
                 isRunning = false;
                 timerWorker.postMessage('stop');
-                silentAudio.pause();
                 releaseWakeLock();
                 manageStartButtonState();
                 break;
@@ -358,6 +363,11 @@ function tick() {
         } else {
             break;
         }
+    }
+
+    // Yakalama durumlarında yüzlerce bitiş olsa bile sadece son düğümün bildirimini çal
+    if (lastCompletedType) {
+        playBeep(lastCompletedType);
     }
 
     if (timelineNeedsRender) renderTimeline();
@@ -390,8 +400,14 @@ function updateDisplays() {
     document.getElementById('emergencyTimeDisplay').textContent =
         `(+${formatMMSS(Math.floor(displayEmergencyMs / 1000))})`;
 
-    const wc = nodes.filter(n => n.type==='work'  && n.state==='completed').length;
-    const bc = nodes.filter(n => n.type==='break' && n.state==='completed').length;
+    // Optimizasyon: Array filter yerine düşük maliyetli döngü
+    let wc = 0, bc = 0;
+    for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].state === 'completed') {
+            if (nodes[i].type === 'work') wc++;
+            else bc++;
+        }
+    }
     document.getElementById('sessionStatsDisplay').textContent = `W:${wc} / B:${bc}`;
 }
 function updateInputDisplay() {
@@ -571,7 +587,6 @@ function deleteNode(id) {
             if (isRunning) {
                 isRunning = false;
                 timerWorker.postMessage('stop');
-                silentAudio.pause();
                 releaseWakeLock();
             }
         }
@@ -669,7 +684,6 @@ function startGlobalTimer() {
     acquireWakeLock();
 
     isRunning = true;
-    silentAudio.play().catch(()=>{});
 
     topStartBtn.classList.replace('bg-emerald-600','bg-slate-700');
     topStartBtn.classList.replace('text-white','text-slate-500');
@@ -711,9 +725,12 @@ manageStartButtonState();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js', {scope:'./'})
-            .then(r => console.log('SW registered:', r.scope))
-            .catch(e => console.warn('SW error:', e));
+        // Blob preview URL hatalarını engelle
+        if (window.location.protocol === 'https:' || window.location.protocol === 'http:' || window.location.hostname === 'localhost') {
+            navigator.serviceWorker.register('./sw.js', {scope:'./'})
+                .then(r => console.log('SW registered:', r.scope))
+                .catch(e => console.warn('SW error:', e));
+        }
     });
 }
 </script>
