@@ -6,10 +6,10 @@
     <meta name="theme-color" content="#0f172a">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Timeline Flow">
+    <meta name="apple-mobile-web-app-title" content="Dopamine Timer">
     <link rel="manifest" href="./manifest.json">
     <link rel="apple-touch-icon" href="./icon-192.png">
-    <title>⏱️ Timeline Flow</title>
+    <title>Dopamine Timer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
@@ -54,19 +54,36 @@
 
     <div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
         
-        <div class="px-6 py-5 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-20 flex justify-between items-center shadow-sm">
-            <div class="flex flex-col">
-                <span class="text-xs text-slate-400 font-semibold tracking-wider uppercase">Toplam Geçen Zaman</span>
-                <span id="totalElapsedDisplay" class="text-2xl font-bold text-white tabular-nums tracking-tight">00:00:00</span>
+        <!-- Üst İstatistikler ve Acil Mola -->
+        <div class="px-6 py-4 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-20 flex justify-between items-start shadow-sm relative">
+            <div class="flex flex-col flex-1">
+                <span class="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mb-0.5">Toplam Geçen</span>
+                <div class="flex flex-col items-end w-fit">
+                    <span id="totalElapsedDisplay" class="text-2xl font-bold text-white tabular-nums tracking-tight leading-none">00:00:00</span>
+                    <span id="emergencyTimeDisplay" class="text-[10px] text-slate-500 font-mono hidden mt-1">(+00:00)</span>
+                </div>
             </div>
-            <div class="flex flex-col text-right">
-                <span class="text-xs text-indigo-400 font-semibold tracking-wider uppercase">Toplam Çalışma</span>
+
+            <!-- Siren Button (Absolute center) -->
+            <div class="flex justify-center absolute left-1/2 transform -translate-x-1/2 top-3">
+                <button id="emergencyBtn" class="flex flex-col items-center justify-center text-red-500 hover:text-red-400 transition-colors group outline-none" onclick="toggleEmergencyBreak()">
+                    <div id="emergencyIcon" class="w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform">
+                        <div class="w-3 h-3 bg-red-500 rounded-full animate-ping absolute"></div>
+                        <div class="w-3 h-3 bg-red-500 rounded-full relative z-10 shadow-[0_0_8px_rgba(220,38,38,0.8)]"></div>
+                    </div>
+                    <span id="emergencyText" class="text-[8px] font-bold mt-1.5 uppercase tracking-widest text-slate-400">Acil Mola</span>
+                </button>
+            </div>
+
+            <div class="flex flex-col text-right flex-1 items-end">
+                <span class="text-[10px] text-indigo-400 font-semibold tracking-wider uppercase">Toplam Çalışma</span>
                 <span id="totalWorkDisplay" class="text-2xl font-bold text-indigo-300 tabular-nums tracking-tight">00:00:00</span>
+                <span id="sessionStatsDisplay" class="text-[10px] text-slate-500/70 font-mono mt-0.5 tracking-wider">W:0 / B:0</span>
             </div>
         </div>
 
         <div class="px-6 py-3 bg-slate-900 border-b border-slate-800 z-20 flex justify-center shadow-md relative">
-            <button id="topStartBtn" class="w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95" onclick="startGlobalTimer()">SÜREYİ BAŞLAT</button>
+            <button id="topStartBtn" class="w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none" onclick="startGlobalTimer()">SÜREYİ BAŞLAT</button>
         </div>
 
         <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-32">
@@ -74,9 +91,10 @@
             <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
         </div>
 
+        <!-- Numpad & Controls -->
         <div class="bg-slate-950 p-5 rounded-t-3xl shadow-[0_-15px_40px_rgba(0,0,0,0.5)] z-20 pb-8 flex flex-col transition-all duration-300">
             
-            <button onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none">
+            <button onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none tabindex="-1"">
                 <svg id="numpadToggleIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
 
@@ -87,20 +105,20 @@
                 </div>
 
                 <div class="grid grid-cols-3 gap-3">
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(1)">1</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(2)">2</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(3)">3</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(4)">4</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(5)">5</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(6)">6</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(7)">7</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(8)">8</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(9)">9</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(1)">1</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(2)">2</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(3)">3</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(4)">4</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(5)">5</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(6)">6</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(7)">7</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(8)">8</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(9)">9</button>
                     
-                    <button class="numpad-btn bg-red-900/30 text-red-400 rounded-2xl py-4 text-xl font-bold transition-transform" onclick="deleteNum()">DEL</button>
-                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform" onclick="appendNum(0)">0</button>
+                    <button class="numpad-btn bg-red-900/30 text-red-400 rounded-2xl py-4 text-xl font-bold transition-transform outline-none" tabindex="-1" onclick="deleteNum()">DEL</button>
+                    <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(0)">0</button>
                     
-                    <button id="toggleAddBtn" class="bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1" onclick="handleAddToggle()">
+                    <button id="toggleAddBtn" class="bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none" tabindex="-1" onclick="handleAddToggle()">
                         <div class="w-4 h-4 bg-white rounded-md shadow-sm" id="toggleAddShape"></div>
                         <span id="toggleAddText" class="tracking-wide">ÇALIŞMA EKLE</span>
                     </button>
@@ -110,14 +128,31 @@
         </div>
     </div>
 
+    <!-- Silme Onay Modalı -->
+    <div id="deleteConfirmModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center opacity-0 transition-opacity duration-200">
+        <div class="bg-slate-800 p-6 rounded-3xl shadow-2xl border border-slate-700 max-w-[320px] w-full mx-4 transform scale-95 transition-transform duration-200" id="deleteConfirmCard">
+            <h3 class="text-lg font-bold text-white mb-2 text-center">Son Öğeyi Sil?</h3>
+            <p class="text-slate-400 text-sm text-center mb-6">Zaman çizelgesine eklediğiniz son süreyi silmek istediğinize emin misiniz?</p>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteConfirm()" class="flex-1 py-3 rounded-xl bg-slate-700 text-white font-medium hover:bg-slate-600 transition-colors outline-none">Hayır</button>
+                <button onclick="executeDeleteLastNode()" class="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold hover:bg-red-500 transition-colors ring-2 ring-red-400 ring-offset-2 ring-offset-slate-800 outline-none" id="confirmDeleteYesBtn">Evet</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // State
         let isRunning = false;
         let globalInterval = null;
+        let lastTickTime = Date.now();
+        let remainderMs = 0; // Arka plan telafisi için ms artıkları
         
         let totalElapsedSeconds = 0;
         let totalWorkSeconds = 0;
         
+        let isEmergencyBreak = false;
+        let emergencyBreakMs = 0;
+
         let currentInputValue = "";
         let suggestedValue = "";
         
@@ -127,6 +162,9 @@
 
         let nextNodeType = 'work';
         let isNumpadExpanded = true;
+        let isConfirmDeleteOpen = false;
+
+        let audioCtx = null;
 
         // DOM Elements
         const inputDisplay = document.getElementById('inputDisplay');
@@ -150,9 +188,29 @@
             return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
         }
 
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
         function updateDisplays() {
             totalElapsedDisplay.textContent = formatTime(totalElapsedSeconds);
             totalWorkDisplay.textContent = formatTime(totalWorkSeconds);
+            
+            // Emergency Time Display
+            const eSecs = Math.floor(emergencyBreakMs / 1000);
+            const emDisplay = document.getElementById('emergencyTimeDisplay');
+            emDisplay.textContent = `(+${formatMMSS(eSecs)})`;
+
+            // Oturum İstatistikleri W/B
+            let completedWorkCount = nodes.filter(n => n.type === 'work' && n.state === 'completed').length;
+            let completedBreakCount = nodes.filter(n => n.type === 'break' && n.state === 'completed').length;
+            document.getElementById('sessionStatsDisplay').textContent = `W:${completedWorkCount} / B:${completedBreakCount}`;
         }
 
         function updateInputDisplay() {
@@ -172,6 +230,7 @@
         }
 
         function appendNum(num) {
+            getAudioContext();
             if (currentInputValue.length < 4) { 
                 currentInputValue += num.toString();
                 updateInputDisplay();
@@ -179,6 +238,7 @@
         }
 
         function deleteNum() {
+            getAudioContext();
             currentInputValue = currentInputValue.slice(0, -1);
             updateInputDisplay();
         }
@@ -197,6 +257,43 @@
             }
         }
 
+        function toggleEmergencyBreak() {
+            getAudioContext();
+            isEmergencyBreak = !isEmergencyBreak;
+            
+            const btn = document.getElementById('emergencyBtn');
+            const icon = document.getElementById('emergencyIcon');
+            const text = document.getElementById('emergencyText');
+            const display = document.getElementById('emergencyTimeDisplay');
+            const innerDots = icon.querySelectorAll('div');
+
+            if (isEmergencyBreak) {
+                btn.classList.replace('text-red-500', 'text-emerald-500');
+                btn.classList.replace('hover:text-red-400', 'hover:text-emerald-400');
+                icon.className = "w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] relative group-active:scale-95 transition-transform";
+                innerDots.forEach(d => d.classList.replace('bg-red-500', 'bg-emerald-500'));
+                text.textContent = "DEVAM ET";
+                display.classList.remove('hidden');
+                
+                lastTickTime = Date.now();
+                if (!globalInterval) {
+                    globalInterval = setInterval(tick, 200);
+                }
+            } else {
+                btn.classList.replace('text-emerald-500', 'text-red-500');
+                btn.classList.replace('hover:text-emerald-400', 'hover:text-red-400');
+                icon.className = "w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform";
+                innerDots.forEach(d => d.classList.replace('bg-emerald-500', 'bg-red-500'));
+                text.textContent = "ACİL MOLA";
+                
+                lastTickTime = Date.now();
+                if (!isRunning && activeNodeIndex >= nodes.length) {
+                    clearInterval(globalInterval);
+                    globalInterval = null;
+                }
+            }
+        }
+
         function recalculateSuggestionState() {
             if (nodes.length === 0) {
                 nextNodeType = 'work';
@@ -205,12 +302,31 @@
                 const lastNode = nodes[nodes.length - 1];
                 if (lastNode.type === 'work') {
                     nextNodeType = 'break';
-                    suggestedValue = Math.ceil((lastNode.duration / 60) / 2).toString();
+                    let wMins = lastNode.duration / 60;
+                    
+                    if (wMins <= 8) {
+                        suggestedValue = Math.max(1, Math.ceil(wMins / 2)).toString();
+                    } else {
+                        // Yeni Mola Formülü: (Çalışma / 3) + (1 + 0.2 * Son Mola)
+                        let lastBreakNode = [...nodes].reverse().find(n => n.type === 'break');
+                        let bMins = lastBreakNode ? (lastBreakNode.duration / 60) : 0;
+                        let formulaResult = (wMins / 3) + (1 + 0.2 * bMins);
+                        suggestedValue = Math.max(1, Math.round(formulaResult)).toString();
+                    }
                 } else {
                     nextNodeType = 'work';
                     const lastWorkNode = [...nodes].reverse().find(n => n.type === 'work');
                     if (lastWorkNode) {
-                        suggestedValue = ((lastWorkNode.duration / 60) * 2).toString();
+                        let lastWorkMins = lastWorkNode.duration / 60;
+                        if (lastWorkMins >= 34) {
+                            let nextWork = lastWorkMins * 1.1;
+                            suggestedValue = Math.max(1, Math.round(nextWork)).toString();
+                        } else if (lastWorkMins >= 15) {
+                            let nextWork = lastWorkMins + Math.pow(1.1, lastWorkMins);
+                            suggestedValue = Math.max(1, Math.round(nextWork)).toString();
+                        } else {
+                            suggestedValue = Math.max(1, Math.round(lastWorkMins * 2)).toString();
+                        }
                     } else {
                         suggestedValue = "";
                     }
@@ -222,11 +338,11 @@
             const text = document.getElementById('toggleAddText');
 
             if (nextNodeType === 'work') {
-                btn.className = "bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1";
+                btn.className = "bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
                 shape.className = "w-4 h-4 bg-white rounded-md shadow-sm";
                 text.textContent = "ÇALIŞMA EKLE";
             } else {
-                btn.className = "bg-teal-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-teal-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1";
+                btn.className = "bg-teal-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-teal-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
                 shape.className = "w-4 h-4 bg-white rounded-full shadow-sm";
                 text.textContent = "MOLA EKLE";
             }
@@ -234,6 +350,7 @@
         }
 
         function handleAddToggle() {
+            getAudioContext();
             let minutes = parseInt(currentInputValue, 10);
             
             if (isNaN(minutes) || minutes <= 0) {
@@ -248,6 +365,77 @@
             currentInputValue = "";
             recalculateSuggestionState();
         }
+
+        // --- Klavye ve Silme Yönetimi ---
+        
+        function promptDeleteLastNode() {
+            if (nodes.length === 0) return;
+            isConfirmDeleteOpen = true;
+            const modal = document.getElementById('deleteConfirmModal');
+            const card = document.getElementById('deleteConfirmCard');
+            
+            modal.classList.remove('hidden');
+            // Timeout UI animasyonunu tetikler ve Evet tuşuna odaklar
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                card.classList.remove('scale-95');
+                document.getElementById('confirmDeleteYesBtn').focus();
+            }, 10);
+        }
+
+        function closeDeleteConfirm() {
+            isConfirmDeleteOpen = false;
+            const modal = document.getElementById('deleteConfirmModal');
+            const card = document.getElementById('deleteConfirmCard');
+            
+            modal.classList.add('opacity-0');
+            card.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+            
+            if (document.activeElement) {
+                document.activeElement.blur();
+            }
+        }
+
+        function executeDeleteLastNode() {
+            if (nodes.length > 0) {
+                const lastNode = nodes[nodes.length - 1];
+                deleteNode(lastNode.id);
+            }
+            closeDeleteConfirm();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            // Input gibi etkileşimlerde klavyeyi engelleme
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            getAudioContext();
+
+            if (isConfirmDeleteOpen) {
+                if (e.key === 'Enter') {
+                    executeDeleteLastNode();
+                    e.preventDefault();
+                } else if (e.key === 'Escape') {
+                    closeDeleteConfirm();
+                    e.preventDefault();
+                }
+                return;
+            }
+
+            if (e.key >= '0' && e.key <= '9') {
+                appendNum(parseInt(e.key));
+            } else if (e.key === 'Backspace') {
+                deleteNum();
+            } else if (e.key === 'Enter') {
+                handleAddToggle();
+                e.preventDefault();
+            } else if (e.key === 'Delete') {
+                promptDeleteLastNode();
+                e.preventDefault();
+            }
+        });
 
         function deleteNode(id) {
             const index = nodes.findIndex(n => n.id === id);
@@ -275,15 +463,14 @@
         // Web Audio API Custom Sounds
         function playBeep(type) {
             try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const ctx = getAudioContext();
                 
                 if (type === 'break') {
-                    // Mola Sesi (Tok ve 2 Tekrarlı)
                     const playDeepBeep = (startTime) => {
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
                         
-                        osc.type = 'sine'; // Tok ses
+                        osc.type = 'sine'; 
                         osc.frequency.setValueAtTime(300, startTime);
                         
                         gain.gain.setValueAtTime(0, startTime);
@@ -298,10 +485,9 @@
                     };
                     
                     playDeepBeep(ctx.currentTime);
-                    playDeepBeep(ctx.currentTime + 0.5); // İkinci vuruş
+                    playDeepBeep(ctx.currentTime + 0.5); 
                     
                 } else {
-                    // Çalışma Sesi (Standart Parlak Tek Bip)
                     const osc = ctx.createOscillator();
                     const gain = ctx.createGain();
                     
@@ -357,7 +543,7 @@
                 let activeClass = node.state === 'active' ? 'active-node' : '';
                 let isLastNode = index === nodes.length - 1;
                 let deleteBtnHtml = isLastNode ? `
-                    <button onclick="deleteNode('${node.id}')" class="p-2 ml-2 text-slate-600 hover:text-red-400 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90" title="Sil">
+                    <button onclick="promptDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-400 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none" title="Sil">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                 ` : '';
@@ -417,26 +603,93 @@
 
             nodes.push(newNode);
             
-            // Eğer sistem koşuyorsa ve süre bittiği için beklemedeyse sıradakini ateşle
             if (isRunning && activeNodeIndex >= nodes.length - 1) {
                 activeNodeIndex = nodes.length - 1;
                 nodes[activeNodeIndex].state = 'active';
             }
 
             renderTimeline();
-            
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            if(ctx.state === 'suspended') ctx.resume();
+        }
+
+        // Arka Plan Telafili ve Pause Uyumlu Tick
+        function tick() {
+            let now = Date.now();
+            let deltaMs = now - lastTickTime;
+            lastTickTime = now;
+
+            if (isEmergencyBreak) {
+                emergencyBreakMs += deltaMs;
+                updateDisplays();
+                return;
+            }
+
+            if (!isRunning) return;
+
+            remainderMs += deltaMs;
+            let lastCompletedType = null;
+            let timelineUpdated = false;
+
+            // Eğer telefon uykuya dalıp uyandıysa aradaki saniyeleri anlık tamamla
+            while (remainderMs >= 1000) {
+                remainderMs -= 1000;
+
+                if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+                    totalElapsedSeconds++;
+                    let currentNode = nodes[activeNodeIndex];
+                    
+                    if (currentNode.type === 'work') {
+                        totalWorkSeconds++;
+                    }
+
+                    currentNode.remaining--;
+
+                    if (currentNode.remaining <= 0) {
+                        currentNode.state = 'completed';
+                        lastCompletedType = currentNode.type;
+                        timelineUpdated = true;
+                        
+                        activeNodeIndex++;
+                        if (activeNodeIndex < nodes.length) {
+                            nodes[activeNodeIndex].state = 'active';
+                        } else {
+                            isRunning = false;
+                            clearInterval(globalInterval);
+                            globalInterval = null;
+                            
+                            topStartBtn.classList.replace('bg-slate-700', 'bg-emerald-600');
+                            topStartBtn.classList.replace('text-slate-500', 'text-white');
+                            topStartBtn.textContent = 'SÜREYİ BAŞLAT';
+                            topStartBtn.disabled = false;
+                            remainderMs = 0;
+                        }
+                    }
+                } else {
+                    remainderMs = 0;
+                }
+            }
+
+            if (lastCompletedType) {
+                playBeep(lastCompletedType);
+            }
+            if (timelineUpdated) {
+                renderTimeline();
+            }
+
+            updateActiveNodeDisplay();
+            updateDisplays();
         }
 
         function startGlobalTimer() {
+            getAudioContext();
             if (isRunning) return;
             
             if (nodes.length === 0 || activeNodeIndex >= nodes.length) {
-                return; // Başlatılacak eleman yok
+                return; 
             }
 
             isRunning = true;
+            lastTickTime = Date.now();
+            remainderMs = 0;
             
             topStartBtn.classList.replace('bg-emerald-600', 'bg-slate-700');
             topStartBtn.classList.replace('text-white', 'text-slate-500');
@@ -449,40 +702,9 @@
                 renderTimeline();
             }
 
-            globalInterval = setInterval(() => {
-                if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
-                    totalElapsedSeconds++;
-                    let currentNode = nodes[activeNodeIndex];
-                    
-                    if (currentNode.type === 'work') {
-                        totalWorkSeconds++;
-                    }
-
-                    currentNode.remaining--;
-                    updateActiveNodeDisplay();
-
-                    if (currentNode.remaining <= 0) {
-                        currentNode.state = 'completed';
-                        playBeep(currentNode.type);
-                        
-                        activeNodeIndex++;
-                        if (activeNodeIndex < nodes.length) {
-                            nodes[activeNodeIndex].state = 'active';
-                        } else {
-                            // Bütün düğümler bittiğinde sayacı durdur
-                            isRunning = false;
-                            clearInterval(globalInterval);
-                            
-                            topStartBtn.classList.replace('bg-slate-700', 'bg-emerald-600');
-                            topStartBtn.classList.replace('text-slate-500', 'text-white');
-                            topStartBtn.textContent = 'SÜREYİ BAŞLAT';
-                            topStartBtn.disabled = false;
-                        }
-                        renderTimeline(); 
-                    }
-                    updateDisplays();
-                }
-            }, 1000);
+            if (!globalInterval) {
+                globalInterval = setInterval(tick, 200); // Daha sık ve duyarlı interval
+            }
         }
 
         // Init empty state
