@@ -54,7 +54,7 @@
         </div>
 
         <div class="flex justify-center absolute left-1/2 transform -translate-x-1/2 top-3">
-            <button id="emergencyBtn" class="flex flex-col items-center justify-center text-red-500 hover:text-red-400 transition-colors group outline-none" onclick="toggleEmergencyBreak()">
+            <button id="emergencyBtn" class="flex flex-col items-center justify-center text-red-500 hover:text-red-400 transition-colors group outline-none opacity-30 pointer-events-none grayscale" onclick="toggleEmergencyBreak()" disabled>
                 <div id="emergencyIcon" class="w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform">
                     <div class="w-3 h-3 bg-red-500 rounded-full animate-ping absolute"></div>
                     <div class="w-3 h-3 bg-red-500 rounded-full relative z-10 shadow-[0_0_8px_rgba(220,38,38,0.8)]"></div>
@@ -353,6 +353,7 @@ function tick() {
                 silentAudio.pause();
                 releaseWakeLock();
                 manageStartButtonState();
+                manageEmergencyButtonState();
                 break;
             }
         } else {
@@ -379,6 +380,20 @@ function manageStartButtonState() {
         topStartBtn.textContent = 'SÜREYİ BAŞLAT';
     }
 }
+
+function manageEmergencyButtonState() {
+    const btn = document.getElementById('emergencyBtn');
+    const isSessionActive = activeNodeIndex >= 0 && activeNodeIndex < nodes.length;
+    
+    if (isSessionActive) {
+        btn.disabled = false;
+        btn.classList.remove('opacity-30', 'pointer-events-none', 'grayscale');
+    } else {
+        btn.disabled = true;
+        btn.classList.add('opacity-30', 'pointer-events-none', 'grayscale');
+    }
+}
+
 function updateDisplays() {
     totalElapsedDisplay.textContent = formatTime(totalElapsedSeconds);
     totalWorkDisplay.textContent    = formatTime(totalWorkSeconds);
@@ -425,6 +440,17 @@ function toggleNumpad() {
     isNumpadExpanded = !isNumpadExpanded;
     document.getElementById('numpadContent').classList.toggle('hidden', !isNumpadExpanded);
     document.getElementById('numpadToggleIcon').style.transform = isNumpadExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    
+    if (!isNumpadExpanded) {
+        if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
+            const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
+            if (activeEl) {
+                activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        } else {
+            timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -574,6 +600,8 @@ function deleteNode(id) {
                 silentAudio.pause();
                 releaseWakeLock();
             }
+            manageStartButtonState();
+            manageEmergencyButtonState();
         }
     }
     renderTimeline();
@@ -681,7 +709,8 @@ function startGlobalTimer() {
         activateNode(activeNodeIndex); 
         renderTimeline();
     }
-
+    
+    manageEmergencyButtonState();
     timerWorker.postMessage('start');
 }
 
@@ -691,6 +720,14 @@ function startGlobalTimer() {
 document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     getAudioContext();
+    
+    if (e.code === 'Space') {
+        e.preventDefault();
+        if (document.activeElement) document.activeElement.blur();
+        toggleNumpad();
+        return;
+    }
+
     if (isConfirmDeleteOpen) {
         if (e.key === 'Enter')   { executeDeleteLastNode(); e.preventDefault(); }
         if (e.key === 'Escape')  { closeDeleteConfirm();   e.preventDefault(); }
@@ -708,12 +745,15 @@ document.addEventListener('keydown', e => {
 renderTimeline();
 updateInputDisplay();
 manageStartButtonState();
+manageEmergencyButtonState();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js', {scope:'./'})
-            .then(r => console.log('SW registered:', r.scope))
-            .catch(e => console.warn('SW error:', e));
+        if (window.location.protocol === 'https:' || window.location.protocol === 'http:' || window.location.hostname === 'localhost') {
+            navigator.serviceWorker.register('./sw.js', {scope:'./'})
+                .then(r => console.log('SW registered:', r.scope))
+                .catch(e => console.warn('SW error:', e));
+        }
     });
 }
 </script>
