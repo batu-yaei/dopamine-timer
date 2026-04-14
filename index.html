@@ -52,9 +52,12 @@
 </head>
 <body class="h-screen w-screen flex justify-center overflow-hidden bg-black">
 
+    <audio id="silentAudio" loop playsinline>
+        <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
+    </audio>
+
     <div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
         
-        <!-- Üst İstatistikler ve Acil Mola -->
         <div class="px-6 py-4 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-20 flex justify-between items-start shadow-sm relative">
             <div class="flex flex-col flex-1">
                 <span class="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mb-0.5">Toplam Geçen</span>
@@ -64,7 +67,6 @@
                 </div>
             </div>
 
-            <!-- Siren Button (Absolute center) -->
             <div class="flex justify-center absolute left-1/2 transform -translate-x-1/2 top-3">
                 <button id="emergencyBtn" class="flex flex-col items-center justify-center text-red-500 hover:text-red-400 transition-colors group outline-none" onclick="toggleEmergencyBreak()">
                     <div id="emergencyIcon" class="w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform">
@@ -83,7 +85,7 @@
         </div>
 
         <div class="px-6 py-3 bg-slate-900 border-b border-slate-800 z-20 flex justify-center shadow-md relative">
-            <button id="topStartBtn" class="w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none" onclick="startGlobalTimer()">SÜREYİ BAŞLAT</button>
+            <button id="topStartBtn" class="w-full bg-slate-700 text-slate-500 rounded-xl py-3 font-bold transition-all outline-none opacity-50 cursor-not-allowed" onclick="startGlobalTimer()" disabled>SÜREYİ BAŞLAT</button>
         </div>
 
         <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-32">
@@ -91,10 +93,9 @@
             <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
         </div>
 
-        <!-- Numpad & Controls -->
         <div class="bg-slate-950 p-5 rounded-t-3xl shadow-[0_-15px_40px_rgba(0,0,0,0.5)] z-20 pb-8 flex flex-col transition-all duration-300">
             
-            <button onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none tabindex="-1"">
+            <button onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none" tabindex="-1">
                 <svg id="numpadToggleIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
 
@@ -141,11 +142,9 @@
     </div>
 
     <script>
-        // State
         let isRunning = false;
-        let globalInterval = null;
         let lastTickTime = Date.now();
-        let remainderMs = 0; // Arka plan telafisi için ms artıkları
+        let remainderMs = 0; 
         
         let totalElapsedSeconds = 0;
         let totalWorkSeconds = 0;
@@ -156,7 +155,6 @@
         let currentInputValue = "";
         let suggestedValue = "";
         
-        // Timeline Queue
         let nodes = [];
         let activeNodeIndex = -1;
 
@@ -165,16 +163,35 @@
         let isConfirmDeleteOpen = false;
 
         let audioCtx = null;
+        let timerWorker = null;
+        let scheduledAudioNodes = []; 
 
-        // DOM Elements
+        const workerCode = `
+            let timer = null;
+            self.onmessage = function(e) {
+                if (e.data === 'start') {
+                    if (timer) clearInterval(timer);
+                    timer = setInterval(() => self.postMessage('tick'), 200);
+                } else if (e.data === 'stop') {
+                    if (timer) clearInterval(timer);
+                    timer = null;
+                }
+            };
+        `;
+        const blob = new Blob([workerCode], {type: 'application/javascript'});
+        timerWorker = new Worker(URL.createObjectURL(blob));
+        timerWorker.onmessage = function(e) {
+            if (e.data === 'tick') tick();
+        };
+
         const inputDisplay = document.getElementById('inputDisplay');
         const nodesWrapper = document.getElementById('nodesWrapper');
         const totalElapsedDisplay = document.getElementById('totalElapsedDisplay');
         const totalWorkDisplay = document.getElementById('totalWorkDisplay');
         const topStartBtn = document.getElementById('topStartBtn');
         const timelineContainer = document.getElementById('timelineContainer');
+        const silentAudio = document.getElementById('silentAudio');
 
-        // Helpers
         function formatTime(totalSeconds) {
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
@@ -198,16 +215,109 @@
             return audioCtx;
         }
 
+        function scheduleBeep(type, delaySeconds) {
+            try {
+                const ctx = getAudioContext();
+                const startTime = ctx.currentTime + delaySeconds;
+                
+                let oscs = [];
+                let gains = [];
+
+                if (type === 'break') {
+                    for(let i=0; i<4; i++) {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(450, startTime + (i * 0.75));
+                        
+                        gain.gain.setValueAtTime(0, startTime + (i * 0.75));
+                        gain.gain.linearRampToValueAtTime(0.6, startTime + (i * 0.75) + 0.05);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + (i * 0.75) + 0.6);
+                        
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        
+                        osc.start(startTime + (i * 0.75));
+                        osc.stop(startTime + (i * 0.75) + 0.75);
+                        
+                        oscs.push(osc);
+                        gains.push(gain);
+                    }
+                } else {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(600, startTime);
+                    osc.frequency.exponentialRampToValueAtTime(1200, startTime + 0.1);
+                    
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(0.5, startTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 1);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    
+                    osc.start(startTime);
+                    osc.stop(startTime + 1);
+                    
+                    oscs.push(osc);
+                    gains.push(gain);
+                }
+                
+                scheduledAudioNodes.push({ oscs, gains });
+            } catch(e) {
+                console.warn("Audio error:", e);
+            }
+        }
+
+        function cancelScheduledAudio() {
+            scheduledAudioNodes.forEach(item => {
+                item.oscs.forEach(osc => {
+                    try { osc.stop(); osc.disconnect(); } catch(e){}
+                });
+                item.gains.forEach(gain => {
+                    try { gain.disconnect(); } catch(e){}
+                });
+            });
+            scheduledAudioNodes = [];
+        }
+
+        function recalculateAllSchedules() {
+            cancelScheduledAudio();
+            if (!isRunning || isEmergencyBreak) return;
+            
+            let accumulatedDelay = 0;
+            
+            for (let i = activeNodeIndex; i < nodes.length; i++) {
+                if (i < 0) continue;
+                let node = nodes[i];
+                if (node.state === 'completed') continue;
+                
+                accumulatedDelay += node.remaining;
+                scheduleBeep(node.type, accumulatedDelay);
+            }
+        }
+
+        function manageStartButtonState() {
+            if (nodes.length === 0) {
+                topStartBtn.disabled = true;
+                topStartBtn.className = "w-full bg-slate-700 text-slate-500 rounded-xl py-3 font-bold transition-all outline-none opacity-50 cursor-not-allowed";
+            } else if (!isRunning) {
+                topStartBtn.disabled = false;
+                topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none";
+                topStartBtn.textContent = 'SÜREYİ BAŞLAT';
+            }
+        }
+
         function updateDisplays() {
             totalElapsedDisplay.textContent = formatTime(totalElapsedSeconds);
             totalWorkDisplay.textContent = formatTime(totalWorkSeconds);
             
-            // Emergency Time Display
             const eSecs = Math.floor(emergencyBreakMs / 1000);
             const emDisplay = document.getElementById('emergencyTimeDisplay');
             emDisplay.textContent = `(+${formatMMSS(eSecs)})`;
 
-            // Oturum İstatistikleri W/B
             let completedWorkCount = nodes.filter(n => n.type === 'work' && n.state === 'completed').length;
             let completedBreakCount = nodes.filter(n => n.type === 'break' && n.state === 'completed').length;
             document.getElementById('sessionStatsDisplay').textContent = `W:${completedWorkCount} / B:${completedBreakCount}`;
@@ -268,6 +378,8 @@
             const innerDots = icon.querySelectorAll('div');
 
             if (isEmergencyBreak) {
+                cancelScheduledAudio(); 
+                
                 btn.classList.replace('text-red-500', 'text-emerald-500');
                 btn.classList.replace('hover:text-red-400', 'hover:text-emerald-400');
                 icon.className = "w-9 h-9 rounded-full bg-emerald-600/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] relative group-active:scale-95 transition-transform";
@@ -276,10 +388,12 @@
                 display.classList.remove('hidden');
                 
                 lastTickTime = Date.now();
-                if (!globalInterval) {
-                    globalInterval = setInterval(tick, 200);
+                if (!isRunning && activeNodeIndex >= nodes.length) {
+                    timerWorker.postMessage('start');
                 }
             } else {
+                recalculateAllSchedules(); 
+                
                 btn.classList.replace('text-emerald-500', 'text-red-500');
                 btn.classList.replace('hover:text-emerald-400', 'hover:text-red-400');
                 icon.className = "w-9 h-9 rounded-full bg-red-600/20 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)] relative group-active:scale-95 transition-transform";
@@ -288,8 +402,7 @@
                 
                 lastTickTime = Date.now();
                 if (!isRunning && activeNodeIndex >= nodes.length) {
-                    clearInterval(globalInterval);
-                    globalInterval = null;
+                    timerWorker.postMessage('stop');
                 }
             }
         }
@@ -307,7 +420,6 @@
                     if (wMins <= 8) {
                         suggestedValue = Math.max(1, Math.ceil(wMins / 2)).toString();
                     } else {
-                        // Yeni Mola Formülü: (Çalışma / 3) + (1 + 0.2 * Son Mola)
                         let lastBreakNode = [...nodes].reverse().find(n => n.type === 'break');
                         let bMins = lastBreakNode ? (lastBreakNode.duration / 60) : 0;
                         let formulaResult = (wMins / 3) + (1 + 0.2 * bMins);
@@ -318,14 +430,21 @@
                     const lastWorkNode = [...nodes].reverse().find(n => n.type === 'work');
                     if (lastWorkNode) {
                         let lastWorkMins = lastWorkNode.duration / 60;
-                        if (lastWorkMins >= 34) {
-                            let nextWork = lastWorkMins * 1.1;
-                            suggestedValue = Math.max(1, Math.round(nextWork)).toString();
-                        } else if (lastWorkMins >= 15) {
-                            let nextWork = lastWorkMins + Math.pow(1.1, lastWorkMins);
-                            suggestedValue = Math.max(1, Math.round(nextWork)).toString();
-                        } else {
+                        
+                        // Denklem 1: 4 Dakikaya kadar x2
+                        if (lastWorkMins <= 4) {
                             suggestedValue = Math.max(1, Math.round(lastWorkMins * 2)).toString();
+                        } 
+                        // Denklem 2: 5'ten 29'a kadar yumuşak artış polinom eğrisi (Kalıbre Edildi)
+                        else if (lastWorkMins < 30) {
+                            // Yeni kalibre edilen eğri formülü
+                            let nextWork = -0.0152 * Math.pow(lastWorkMins, 2) + 1.488 * lastWorkMins + 2.112;
+                            suggestedValue = Math.max(lastWorkMins + 1, Math.round(nextWork)).toString();
+                        } 
+                        // Denklem 3: 30 ve Üzeri %10 artış
+                        else {
+                            let nextWork = lastWorkMins * 1.1; 
+                            suggestedValue = Math.max(lastWorkMins + 1, Math.round(nextWork)).toString();
                         }
                     } else {
                         suggestedValue = "";
@@ -347,6 +466,7 @@
                 text.textContent = "MOLA EKLE";
             }
             updateInputDisplay();
+            manageStartButtonState();
         }
 
         function handleAddToggle() {
@@ -365,8 +485,6 @@
             currentInputValue = "";
             recalculateSuggestionState();
         }
-
-        // --- Klavye ve Silme Yönetimi ---
         
         function promptDeleteLastNode() {
             if (nodes.length === 0) return;
@@ -375,7 +493,6 @@
             const card = document.getElementById('deleteConfirmCard');
             
             modal.classList.remove('hidden');
-            // Timeout UI animasyonunu tetikler ve Evet tuşuna odaklar
             setTimeout(() => {
                 modal.classList.remove('opacity-0');
                 card.classList.remove('scale-95');
@@ -408,9 +525,7 @@
         }
 
         document.addEventListener('keydown', (e) => {
-            // Input gibi etkileşimlerde klavyeyi engelleme
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
             getAudioContext();
 
             if (isConfirmDeleteOpen) {
@@ -458,56 +573,7 @@
 
             renderTimeline();
             recalculateSuggestionState();
-        }
-
-        // Web Audio API Custom Sounds
-        function playBeep(type) {
-            try {
-                const ctx = getAudioContext();
-                
-                if (type === 'break') {
-                    const playDeepBeep = (startTime) => {
-                        const osc = ctx.createOscillator();
-                        const gain = ctx.createGain();
-                        
-                        osc.type = 'sine'; 
-                        osc.frequency.setValueAtTime(300, startTime);
-                        
-                        gain.gain.setValueAtTime(0, startTime);
-                        gain.gain.linearRampToValueAtTime(0.6, startTime + 0.05);
-                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.4);
-                        
-                        osc.connect(gain);
-                        gain.connect(ctx.destination);
-                        
-                        osc.start(startTime);
-                        osc.stop(startTime + 0.5);
-                    };
-                    
-                    playDeepBeep(ctx.currentTime);
-                    playDeepBeep(ctx.currentTime + 0.5); 
-                    
-                } else {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(600, ctx.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-                    
-                    gain.gain.setValueAtTime(0, ctx.currentTime);
-                    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
-                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    
-                    osc.start();
-                    osc.stop(ctx.currentTime + 1);
-                }
-            } catch(e) {
-                console.warn("Audio error:", e);
-            }
+            recalculateAllSchedules();
         }
 
         function renderTimeline() {
@@ -609,9 +675,10 @@
             }
 
             renderTimeline();
+            manageStartButtonState();
+            recalculateAllSchedules();
         }
 
-        // Arka Plan Telafili ve Pause Uyumlu Tick
         function tick() {
             let now = Date.now();
             let deltaMs = now - lastTickTime;
@@ -626,10 +693,8 @@
             if (!isRunning) return;
 
             remainderMs += deltaMs;
-            let lastCompletedType = null;
             let timelineUpdated = false;
 
-            // Eğer telefon uykuya dalıp uyandıysa aradaki saniyeleri anlık tamamla
             while (remainderMs >= 1000) {
                 remainderMs -= 1000;
 
@@ -645,7 +710,6 @@
 
                     if (currentNode.remaining <= 0) {
                         currentNode.state = 'completed';
-                        lastCompletedType = currentNode.type;
                         timelineUpdated = true;
                         
                         activeNodeIndex++;
@@ -653,13 +717,10 @@
                             nodes[activeNodeIndex].state = 'active';
                         } else {
                             isRunning = false;
-                            clearInterval(globalInterval);
-                            globalInterval = null;
+                            timerWorker.postMessage('stop');
+                            silentAudio.pause();
                             
-                            topStartBtn.classList.replace('bg-slate-700', 'bg-emerald-600');
-                            topStartBtn.classList.replace('text-slate-500', 'text-white');
-                            topStartBtn.textContent = 'SÜREYİ BAŞLAT';
-                            topStartBtn.disabled = false;
+                            manageStartButtonState();
                             remainderMs = 0;
                         }
                     }
@@ -668,9 +729,6 @@
                 }
             }
 
-            if (lastCompletedType) {
-                playBeep(lastCompletedType);
-            }
             if (timelineUpdated) {
                 renderTimeline();
             }
@@ -680,17 +738,18 @@
         }
 
         function startGlobalTimer() {
+            if (nodes.length === 0) return;
             getAudioContext();
-            if (isRunning) return;
             
-            if (nodes.length === 0 || activeNodeIndex >= nodes.length) {
-                return; 
-            }
+            if (isRunning) return;
+            if (activeNodeIndex >= nodes.length) return; 
 
             isRunning = true;
             lastTickTime = Date.now();
             remainderMs = 0;
             
+            silentAudio.play().catch(()=>{});
+
             topStartBtn.classList.replace('bg-emerald-600', 'bg-slate-700');
             topStartBtn.classList.replace('text-white', 'text-slate-500');
             topStartBtn.textContent = 'AKIŞTA';
@@ -702,16 +761,14 @@
                 renderTimeline();
             }
 
-            if (!globalInterval) {
-                globalInterval = setInterval(tick, 200); // Daha sık ve duyarlı interval
-            }
+            recalculateAllSchedules();
+            timerWorker.postMessage('start');
         }
 
-        // Init empty state
         renderTimeline();
         updateInputDisplay();
+        manageStartButtonState();
 
-        // PWA Service Worker Registration
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
