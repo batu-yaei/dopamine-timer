@@ -446,6 +446,8 @@ function fireNotification(completedType) {
 }
 
 function updateExtensionBadge(text, type) {
+    window.dispatchEvent(new CustomEvent('DOPAMINE_BADGE', { detail: { text, type } }));
+
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         const color = type === 'work' ? '#4f46e5' : '#0d9488';
         chrome.runtime.sendMessage({ type: 'UPDATE_BADGE', text: text, color: color }).catch(() => {});
@@ -607,7 +609,6 @@ function tick() {
 
         node.remaining = newRemaining;
 
-        // Extension Badge Update
         if (exactRemainingMs >= 0) {
             let mins = Math.floor(newRemaining / 60);
             let badgeTxt = mins > 0 ? mins.toString() : (newRemaining > 0 ? '<1' : '0');
@@ -683,6 +684,11 @@ function tick() {
 // DISPLAYS & SCROLL
 // ═══════════════════════════════════════════════════════
 function manageStartButtonState() {
+    const startCont = document.getElementById('startContainer');
+    if (!isRunning && startCont) {
+        startCont.classList.remove('hidden');
+    }
+
     if (nodes.length === 0) {
         topStartBtn.disabled  = true;
         topStartBtn.className = "w-full bg-slate-700 text-slate-500 rounded-xl py-3 font-bold transition-all outline-none opacity-50 cursor-not-allowed";
@@ -1150,11 +1156,11 @@ function renderTimeline() {
             const showDelete = isLast && !(isRunning && node.state === 'active');
             
             const delBtn = showDelete ? `
-                <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center">
+                <button onclick="executeDeleteLastNode()" class="p-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center flex-shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>` : '';
 
-            const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md";
+            const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none whitespace-nowrap" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md whitespace-nowrap";
             const skipBtn = (node.state === 'active') ? `<button onclick="skipActiveNode()" class="${skipBtnClass}">ATLA</button>` : '';
 
             const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
@@ -1165,11 +1171,11 @@ function renderTimeline() {
                         <span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span>
                     </div>
                 </div>
-                <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border transition-colors duration-300">
-                    <div class="flex-1 flex flex-col">
+                <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border transition-colors duration-300 min-w-0">
+                    <div class="flex-1 flex flex-col min-w-0 pr-2 border-r border-transparent">
                         <div class="flex justify-between items-start mb-1">
                             <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
-                            <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
+                            <span class="text-xs text-slate-500 font-medium whitespace-nowrap ml-2">${node.duration/60} dk</span>
                         </div>
                         <div class="flex justify-between items-center w-full">
                             <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
