@@ -24,13 +24,8 @@
             -webkit-touch-callout: none;
         }
 
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
         @keyframes pulse-ring {
             0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3); }
@@ -41,17 +36,14 @@
             animation: pulse-ring 2s infinite;
             border: 2px solid white;
         }
-        
         .completed-node {
             opacity: 0.4;
             filter: grayscale(100%);
         }
-
         .numpad-btn:active {
             transform: scale(0.95);
             background-color: #334155;
         }
-        
         input, textarea {
             -webkit-user-select: auto;
             user-select: auto;
@@ -97,7 +89,6 @@
         </div>
 
         <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-32">
-            <!-- Node'lar buraya js ile basılıyor. Hizalama js içinden yönetilecek -->
             <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
         </div>
 
@@ -222,7 +213,6 @@
             return audioCtx;
         }
 
-        // --- Just In Time Audio Playback ---
         function playCountdown(type) {
             try {
                 const ctx = getAudioContext();
@@ -235,7 +225,6 @@
                     gain.gain.setValueAtTime(0, ctx.currentTime);
                     gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.1);
                     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-                    
                     osc.connect(gain);
                     gain.connect(ctx.destination);
                     osc.start(ctx.currentTime);
@@ -246,7 +235,6 @@
                     gain.gain.setValueAtTime(0, ctx.currentTime);
                     gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
                     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-                    
                     osc.connect(gain);
                     gain.connect(ctx.destination);
                     osc.start(ctx.currentTime);
@@ -265,21 +253,16 @@
                     const playDeepBeep = (startTime) => {
                         const osc = ctx.createOscillator();
                         const gain = ctx.createGain();
-                        
                         osc.type = 'sine';
                         osc.frequency.setValueAtTime(450, startTime);
-                        
                         gain.gain.setValueAtTime(0, startTime);
                         gain.gain.linearRampToValueAtTime(0.6, startTime + 0.05);
                         gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.6);
-                        
                         osc.connect(gain);
                         gain.connect(ctx.destination);
-                        
                         osc.start(startTime);
                         osc.stop(startTime + 0.75);
                     };
-                    
                     playDeepBeep(ctx.currentTime);
                     playDeepBeep(ctx.currentTime + 0.75);
                     playDeepBeep(ctx.currentTime + 1.50);
@@ -287,18 +270,14 @@
                 } else {
                     const osc = ctx.createOscillator();
                     const gain = ctx.createGain();
-                    
                     osc.type = 'triangle';
                     osc.frequency.setValueAtTime(600, ctx.currentTime);
                     osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-                    
                     gain.gain.setValueAtTime(0, ctx.currentTime);
                     gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
                     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
-                    
                     osc.connect(gain);
                     gain.connect(ctx.destination);
-                    
                     osc.start(ctx.currentTime);
                     osc.stop(ctx.currentTime + 1);
                 }
@@ -311,6 +290,7 @@
             if (nodes.length === 0) {
                 topStartBtn.disabled = true;
                 topStartBtn.className = "w-full bg-slate-700 text-slate-500 rounded-xl py-3 font-bold transition-all outline-none opacity-50 cursor-not-allowed";
+                topStartBtn.textContent = 'SÜREYİ BAŞLAT';
             } else if (!isRunning) {
                 topStartBtn.disabled = false;
                 topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none";
@@ -349,7 +329,7 @@
 
         function appendNum(num) {
             getAudioContext();
-            if (currentInputValue.length < 4) { 
+            if (currentInputValue.length < 4) {
                 currentInputValue += num.toString();
                 updateInputDisplay();
             }
@@ -475,7 +455,7 @@
                 if (suggestedValue !== "") {
                     minutes = parseInt(suggestedValue, 10);
                 } else {
-                    return; 
+                    return;
                 }
             }
 
@@ -550,6 +530,9 @@
             }
         });
 
+        // ─────────────────────────────────────────────────────────────────────
+        // HATA 2 DÜZELTMESİ: Aktif node silinince timer düzgün durduruluyor
+        // ─────────────────────────────────────────────────────────────────────
         function deleteNode(id) {
             const index = nodes.findIndex(n => n.id === id);
             if (index === -1) return;
@@ -563,18 +546,26 @@
 
             if (wasActive) {
                 if (activeNodeIndex < nodes.length) {
+                    // Sonraki node var: onu aktif yap
                     nodes[activeNodeIndex].state = 'active';
                 } else {
+                    // Aktif node silindi ve sırada node kalmadı
                     activeNodeIndex = -1;
+                    if (isRunning) {
+                        // Timer'ı düzgünce durdur
+                        isRunning = false;
+                        timerWorker.postMessage('stop');
+                        silentAudio.pause();
+                        remainderMs = 0;
+                    }
                 }
             }
 
             renderTimeline();
-            recalculateSuggestionState();
+            recalculateSuggestionState(); // manageStartButtonState içeride çağrılıyor
         }
 
         function renderTimeline() {
-            // Hizalama Problemi Çözümü: Çizgi artık nodesWrapper'ın doğrudan içine z-0 ile mutlak hizalı (left-7 tam merkeze denk geliyor)
             nodesWrapper.innerHTML = `<div class="absolute left-7 top-0 bottom-0 w-px border-l-2 border-dashed border-slate-700 z-0"></div>`;
             
             if (nodes.length === 0) {
@@ -597,10 +588,10 @@
                 let shapeClass = "";
                 let bgClass = "";
                 if (node.type === 'work') {
-                    shapeClass = "rounded-2xl"; 
+                    shapeClass = "rounded-2xl";
                     bgClass = "bg-indigo-600 shadow-indigo-900/50";
                 } else {
-                    shapeClass = "rounded-full"; 
+                    shapeClass = "rounded-full";
                     bgClass = "bg-teal-600 shadow-teal-900/50";
                 }
 
@@ -681,7 +672,6 @@
             let deltaMs = now - lastTickTime;
             lastTickTime = now;
             
-            // Gerçek zaman filtresi (Eğer delta > 2sn ise cihaz uykudan uyanmış demektir, geri sayım/bildirimleri topluca çalmamak için)
             let isRealTime = (deltaMs < 2000);
 
             if (isEmergencyBreak) {
@@ -709,7 +699,6 @@
 
                     currentNode.remaining--;
 
-                    // --- JIT (Just-In-Time) Audio Tetikleyicileri ---
                     if (isRealTime) {
                         if (currentNode.remaining === 10) {
                             playCountdown('long');
@@ -730,7 +719,6 @@
                             isRunning = false;
                             timerWorker.postMessage('stop');
                             silentAudio.pause();
-                            
                             manageStartButtonState();
                             remainderMs = 0;
                         }
@@ -751,12 +739,16 @@
             updateDisplays();
         }
 
+        // ─────────────────────────────────────────────────────────────────────
+        // HATA 1 DÜZELTMESİ: Tüm node'lar bitip yeni node eklenince restart
+        // çalışmıyor. activeNodeIndex geçerli ama node hâlâ 'pending' kalıyor.
+        // ─────────────────────────────────────────────────────────────────────
         function startGlobalTimer() {
             if (nodes.length === 0) return;
             getAudioContext();
             
             if (isRunning) return;
-            if (activeNodeIndex >= nodes.length) return; 
+            if (activeNodeIndex >= nodes.length) return;
 
             isRunning = true;
             lastTickTime = Date.now();
@@ -769,8 +761,10 @@
             topStartBtn.textContent = 'AKIŞTA';
             topStartBtn.disabled = true;
 
-            if (activeNodeIndex === -1) {
-                activeNodeIndex = 0;
+            // DÜZELTİLDİ: activeNodeIndex === -1 VEYA node henüz 'pending'
+            // (örn. tüm node'lar bitti, yeni node eklendi, tekrar START'a basıldı)
+            if (activeNodeIndex < 0 || nodes[activeNodeIndex].state === 'pending') {
+                if (activeNodeIndex < 0) activeNodeIndex = 0;
                 nodes[activeNodeIndex].state = 'active';
                 renderTimeline();
             }
