@@ -1,4 +1,4 @@
-const CACHE_NAME = 'timeline-flow-v1';
+const CACHE_NAME = 'dopamine-timer-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -8,10 +8,10 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting(); // Eski sürümü beklemeden doğrudan yeniye geç
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(ASSETS))
-      .then(() => self.skipWaiting())
   );
 });
 
@@ -21,6 +21,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
+            console.log('Eski cache temizleniyor:', cacheName);
             return caches.delete(cacheName);
           }
         })
@@ -30,8 +31,24 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Sadece GET taleplerini işle
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => response || fetch(event.request))
+    fetch(event.request)
+      .then((networkResponse) => {
+        // Ağdan başarılı yanıt geldiyse, cache'i güncelle
+        if (networkResponse && networkResponse.status === 200) {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        // Çevrimdışıysan cache'ten getir
+        return caches.match(event.request);
+      })
   );
 });
