@@ -96,7 +96,6 @@
         
         .keep-white { color: #ffffff !important; }
         
-        /* Drag handle specific color for better visibility in light mode */
         #dragHandle div { background-color: var(--drag-handle) !important; }
         
         .numpad-btn {
@@ -121,10 +120,7 @@
         .numpad-btn:active { transform: scale(0.95); background-color: var(--bg-numpad-btn-active) !important; }
         input, textarea { -webkit-user-select: auto; user-select: auto; }
         
-        /* Timeline dashed line override */
         #nodesWrapper > div.absolute { border-color: var(--timeline-line) !important; }
-        
-        /* Numpad shadow override */
         #numpadWrapper { box-shadow: 0 -25px 50px var(--shadow-numpad) !important; }
     </style>
 </head>
@@ -165,7 +161,8 @@
     </div>
 
     <!-- TIMELINE -->
-    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative transition-all duration-300">
+    <!-- Transition class removed so padding change is instant and scroll calculations are perfectly aligned -->
+    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
 
@@ -556,18 +553,23 @@ function updateInputDisplay() {
 function scrollToBottom() {
     setTimeout(() => {
         timelineContainer.scrollTo({ top: timelineContainer.scrollHeight, behavior: 'smooth' });
-    }, 300);
+    }, 50);
 }
 
 function scrollToActive() {
     setTimeout(() => {
         if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
             const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
-            if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (activeEl) {
+                const containerRect = timelineContainer.getBoundingClientRect();
+                const elRect = activeEl.getBoundingClientRect();
+                const targetTop = timelineContainer.scrollTop + (elRect.top - containerRect.top) - 24;
+                timelineContainer.scrollTo({ top: targetTop, behavior: 'smooth' });
+            }
         } else {
             timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
         }
-    }, 300);
+    }, 50);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -594,11 +596,11 @@ function setNumpadState(open) {
     const wrapperHeight = numpadWrapper.offsetHeight;
     
     // Sabit piksel padding yerine, tuş panelinin gerçek dom yüksekliğini
-    // okuyarak timeline'ın alt sınırını dinamik olarak hizalıyoruz.
+    // okuyarak timeline'ın alt sınırını dinamik olarak hizalıyoruz. Ekstra olarak 24px (+p-6) veriyoruz.
     if (open) {
-        timelineContainer.style.marginBottom = wrapperHeight + 'px';
+        timelineContainer.style.paddingBottom = (wrapperHeight + 24) + 'px';
     } else {
-        timelineContainer.style.marginBottom = '0px';
+        timelineContainer.style.paddingBottom = '24px';
     }
     
     numpadWrapper.style.transition = 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)';
