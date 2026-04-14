@@ -165,7 +165,8 @@
     </div>
 
     <!-- TIMELINE -->
-    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-[450px]">
+    <!-- Default padding is generic; it changes dynamically based on numpad state -->
+    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-6 transition-all duration-300">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
 
@@ -591,6 +592,15 @@ function setNumpadState(open) {
     const wasOpen = numpadOpen;
     numpadOpen = open;
     const contentHeight = numpadContent.offsetHeight;
+    
+    // Yalnızca panel açıkken alt boşluk olsun, kapalıysa normal p-6 kullan.
+    if (open) {
+        timelineContainer.classList.add('pb-[475px]');
+        timelineContainer.classList.remove('pb-6');
+    } else {
+        timelineContainer.classList.remove('pb-[475px]');
+        timelineContainer.classList.add('pb-6');
+    }
     
     numpadWrapper.style.transition = 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)';
     numpadWrapper.style.transform = `translateY(${open ? 0 : contentHeight}px)`;
