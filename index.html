@@ -1174,16 +1174,16 @@ function renderTimeline() {
                     </div>
                 </div>
                 <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border transition-colors duration-300 min-w-0">
-                    <div class="flex-1 flex flex-col min-w-0 pr-2 border-r border-transparent">
-                        <div class="flex justify-between items-start mb-1">
+                    <div class="flex-1 flex flex-col justify-center min-w-0">
+                        <div class="flex justify-between items-center mb-1">
                             <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
                             <span class="text-xs text-slate-500 font-medium whitespace-nowrap ml-2">${node.duration/60} dk</span>
                         </div>
-                        <div class="flex justify-between items-center w-full">
-                            <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
+                        <div class="flex justify-between items-center w-full mt-1">
+                            <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none truncate" id="time-${node.id}">
                                 ${formatMMSS(displaySecs)}
                             </div>
-                            <div class="flex items-center">
+                            <div class="flex items-center gap-2 ml-3">
                                 ${skipBtn}
                                 ${delBtn}
                             </div>
