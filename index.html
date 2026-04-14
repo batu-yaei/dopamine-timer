@@ -37,10 +37,6 @@
 </head>
 <body class="h-screen w-screen flex justify-center overflow-hidden bg-black">
 
-<audio id="silentAudio" loop playsinline>
-    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
-</audio>
-
 <div class="w-full max-w-md h-full bg-slate-900 flex flex-col relative shadow-2xl">
 
     <!-- HEADER -->
@@ -81,8 +77,8 @@
     </div>
 
     <!-- NUMPAD -->
-    <div class="bg-slate-950 p-5 rounded-t-3xl shadow-[0_-15px_40px_rgba(0,0,0,0.5)] z-20 pb-8 flex flex-col transition-all duration-300">
-        <button onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none" tabindex="-1">
+    <div id="numpadContainer" class="bg-slate-950 p-5 rounded-t-3xl shadow-[0_-15px_40px_rgba(0,0,0,0.5)] z-20 pb-8 flex flex-col transition-all duration-300">
+        <button id="numpadDragHandle" onclick="toggleNumpad()" class="w-full flex justify-center pb-3 pt-1 mb-2 text-slate-500 hover:text-slate-300 outline-none" tabindex="-1">
             <svg id="numpadToggleIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-300"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
         <div id="numpadContent" class="flex flex-col">
@@ -175,7 +171,7 @@ const totalElapsedDisplay = document.getElementById('totalElapsedDisplay');
 const totalWorkDisplay    = document.getElementById('totalWorkDisplay');
 const topStartBtn         = document.getElementById('topStartBtn');
 const timelineContainer   = document.getElementById('timelineContainer');
-const silentAudio         = document.getElementById('silentAudio');
+const numpadDragHandle    = document.getElementById('numpadDragHandle');
 
 // ═══════════════════════════════════════════════════════
 // FORMAT
@@ -191,13 +187,14 @@ function formatMMSS(s) {
 }
 
 // ═══════════════════════════════════════════════════════
-// AUDIO
+// AUDIO (Bellek Sızıntısı Filtreli GC Uyumlu)
 // ═══════════════════════════════════════════════════════
 function getAudioContext() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
 }
+
 function playCountdown(type) {
     try {
         const ctx = getAudioContext();
@@ -210,6 +207,7 @@ function playCountdown(type) {
             gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.1);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
             osc.connect(gain); gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
         } else {
             osc.type = 'square';
@@ -218,10 +216,12 @@ function playCountdown(type) {
             gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
             osc.connect(gain); gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
         }
     } catch(e) { console.warn('Countdown audio:', e); }
 }
+
 function playBeep(type) {
     try {
         const ctx = getAudioContext();
@@ -234,6 +234,7 @@ function playBeep(type) {
                 gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.05);
                 gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.6);
                 osc.connect(gain); gain.connect(ctx.destination);
+                osc.onended = () => { osc.disconnect(); gain.disconnect(); };
                 osc.start(ctx.currentTime + offset); osc.stop(ctx.currentTime + offset + 0.75);
             });
         } else {
@@ -245,6 +246,7 @@ function playBeep(type) {
             gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
             osc.connect(gain); gain.connect(ctx.destination);
+            osc.onended = () => { osc.disconnect(); gain.disconnect(); };
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1);
         }
     } catch(e) { console.warn('Beep audio:', e); }
@@ -277,25 +279,36 @@ function requestNotificationPermission() {
         Notification.requestPermission();
     }
 }
+
 function fireNotification(completedType) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const allDone = activeNodeIndex >= nodes.length;
+    
     let title, body;
-    if (allDone) {
+    if (completedType === 'all') {
         title = '🏆 Tüm süre tamamlandı!';
         body  = `${formatTime(totalWorkSeconds)} çalışma. Harika iş!`;
     } else if (completedType === 'work') {
         title = '✅ Çalışma bitti!';
-        body  = `Mola zamanı — ${nodes[activeNodeIndex].duration / 60} dk`;
+        body  = `Mola zamanı geldi.`;
     } else {
         title = '💪 Mola bitti!';
-        body  = `Çalışmaya devam — ${nodes[activeNodeIndex].duration / 60} dk`;
+        body  = `Çalışmaya devam!`;
     }
+
     try {
-        new Notification(title, {
-            body, icon: './icon-192.png',
-            tag: 'dopamine-timer', renotify: true
-        });
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.showNotification(title, {
+                    body: body,
+                    icon: './icon-192.png',
+                    tag: 'dopamine-timer',
+                    renotify: true,
+                    vibrate: [200, 100, 200]
+                });
+            });
+        } else {
+            new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
+        }
     } catch(e) { console.warn('Notification hatası:', e); }
 }
 
@@ -308,7 +321,7 @@ function activateNode(index) {
 }
 
 // ═══════════════════════════════════════════════════════
-// TICK
+// TICK — Catch-up Akıl Yürütmesi İle
 // ═══════════════════════════════════════════════════════
 function tick() {
     if (isEmergencyBreak) {
@@ -317,21 +330,24 @@ function tick() {
     }
     if (!isRunning) return;
 
-    const now       = Date.now();
-    const isVisible = document.visibilityState === 'visible';
+    const now = Date.now();
     let timelineNeedsRender = false;
+    let lastCompletedType = null;
+    let didCatchUp = false;
 
     while (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
         const node = nodes[activeNodeIndex];
         const newRemaining = Math.max(0, Math.ceil((node.expectedEndAt - now) / 1000));
         const elapsed      = node.remaining - newRemaining;
 
+        if (elapsed > 2) didCatchUp = true;
+
         if (elapsed > 0) {
             totalElapsedSeconds += elapsed;
             if (node.type === 'work') totalWorkSeconds += elapsed;
         }
 
-        if (isVisible && elapsed === 1) {
+        if (!didCatchUp && elapsed === 1) {
             if (newRemaining === 10)                      playCountdown('long');
             else if (newRemaining > 0 && newRemaining < 10) playCountdown('short');
         }
@@ -341,24 +357,28 @@ function tick() {
         if (node.remaining <= 0) {
             node.state = 'completed';
             timelineNeedsRender = true;
-            if (isVisible) playBeep(node.type);
-            fireNotification(node.type);
+            lastCompletedType = node.type;
 
             activeNodeIndex++;
             if (activeNodeIndex < nodes.length) {
                 activateNode(activeNodeIndex);
+                fireNotification(lastCompletedType);
             } else {
                 isRunning = false;
                 timerWorker.postMessage('stop');
-                silentAudio.pause();
                 releaseWakeLock();
                 manageStartButtonState();
                 manageEmergencyButtonState();
+                fireNotification('all');
                 break;
             }
         } else {
             break;
         }
+    }
+
+    if (lastCompletedType) {
+        playBeep(lastCompletedType);
     }
 
     if (timelineNeedsRender) renderTimeline();
@@ -405,10 +425,17 @@ function updateDisplays() {
     document.getElementById('emergencyTimeDisplay').textContent =
         `(+${formatMMSS(Math.floor(displayEmergencyMs / 1000))})`;
 
-    const wc = nodes.filter(n => n.type==='work'  && n.state==='completed').length;
-    const bc = nodes.filter(n => n.type==='break' && n.state==='completed').length;
+    // Optimizasyon: Array filter yerine düşük maliyetli döngü
+    let wc = 0, bc = 0;
+    for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].state === 'completed') {
+            if (nodes[i].type === 'work') wc++;
+            else bc++;
+        }
+    }
     document.getElementById('sessionStatsDisplay').textContent = `W:${wc} / B:${bc}`;
 }
+
 function updateInputDisplay() {
     if (currentInputValue !== '') {
         inputDisplay.textContent = currentInputValue;
@@ -461,12 +488,25 @@ function toggleNumpad() {
 }
 
 function forceCloseNumpadAndScroll() {
-    if (isNumpadExpanded) {
-        toggleNumpad();
-    } else {
-        scrollToActive();
-    }
+    if (isNumpadExpanded) toggleNumpad();
+    else scrollToActive();
 }
+
+// Mobile Swipe to Close Numpad Logic
+let touchStartY = 0;
+numpadDragHandle.addEventListener('touchstart', e => {
+    touchStartY = e.touches[0].clientY;
+}, {passive: true});
+
+numpadDragHandle.addEventListener('touchmove', e => {
+    if (!isNumpadExpanded) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - touchStartY;
+    if (deltaY > 40) { 
+        forceCloseNumpadAndScroll();
+        touchStartY = currentY; 
+    }
+}, {passive: true});
 
 // ═══════════════════════════════════════════════════════
 // EMERGENCY BREAK
@@ -614,7 +654,6 @@ function deleteNode(id) {
             if (isRunning) {
                 isRunning = false;
                 timerWorker.postMessage('stop');
-                silentAudio.pause();
                 releaseWakeLock();
             }
             manageStartButtonState();
@@ -714,7 +753,6 @@ function startGlobalTimer() {
     acquireWakeLock();
 
     isRunning = true;
-    silentAudio.play().catch(()=>{});
 
     topStartBtn.classList.replace('bg-emerald-600','bg-slate-700');
     topStartBtn.classList.replace('text-white','text-slate-500');
