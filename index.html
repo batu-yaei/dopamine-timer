@@ -49,6 +49,29 @@
                 --bg-header: rgba(255, 255, 255, 0.8);
                 --node-bg: rgba(255, 255, 255, 0.9);
             }
+            
+            #topStartBtn:disabled {
+                background-color: #e2e8f0 !important;
+                color: #64748b !important;
+            }
+
+            #deleteConfirmCard {
+                background-color: #ffffff !important;
+                border-color: #e2e8f0 !important;
+            }
+            #deleteConfirmCard h3 {
+                color: #0f172a !important;
+            }
+            #deleteConfirmCard p {
+                color: #64748b !important;
+            }
+            #deleteConfirmCard button[onclick="closeDeleteConfirm()"] {
+                background-color: #f1f5f9 !important;
+                color: #334155 !important;
+            }
+            #deleteConfirmCard button[onclick="closeDeleteConfirm()"]:hover {
+                background-color: #e2e8f0 !important;
+            }
         }
 
         body {
@@ -70,6 +93,8 @@
         .border-slate-800, .border-slate-700, .border-slate-700\/50 { border-color: var(--border-color) !important; }
         .bg-slate-900\/80 { background-color: var(--bg-header) !important; }
         .bg-slate-800\/80 { background-color: var(--node-bg) !important; }
+        
+        .keep-white { color: #ffffff !important; }
         
         /* Drag handle specific color for better visibility in light mode */
         #dragHandle div { background-color: var(--drag-handle) !important; }
@@ -140,7 +165,7 @@
     </div>
 
     <!-- TIMELINE -->
-    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-[500px]">
+    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-[450px]">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
 
@@ -168,7 +193,7 @@
                 <button class="numpad-btn bg-slate-800 rounded-2xl py-4 text-2xl font-semibold transition-transform outline-none" tabindex="-1" onclick="appendNum(0)">0</button>
                 <button id="toggleAddBtn" class="bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none" tabindex="-1" onclick="handleAddToggle()">
                     <div class="w-4 h-4 bg-white rounded-md shadow-sm" id="toggleAddShape"></div>
-                    <span id="toggleAddText" class="tracking-wide">ÇALIŞMA EKLE</span>
+                    <span id="toggleAddText" class="tracking-wide keep-white">ÇALIŞMA EKLE</span>
                 </button>
             </div>
         </div>
@@ -470,7 +495,6 @@ function manageStartButtonState() {
         topStartBtn.disabled  = false;
         
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-            // Light mode specific styling if needed, though emerald usually works well in both
             topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-600/30 transition-colors active:scale-95 outline-none";
         } else {
             topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none";
@@ -599,6 +623,7 @@ numpadWrapper.addEventListener('touchstart', e => {
 
 numpadWrapper.addEventListener('touchmove', e => {
     if (!isDraggingNumpad) return;
+    e.preventDefault(); // Sayfa arka plan kaymasını engeller
     const deltaY = e.touches[0].clientY - startNumpadY;
     let newY = initialTranslateY + deltaY;
     
@@ -607,7 +632,7 @@ numpadWrapper.addEventListener('touchmove', e => {
     if (newY > contentHeight) newY = contentHeight;
     
     numpadWrapper.style.transform = `translateY(${newY}px)`;
-}, {passive: true});
+}, {passive: false});
 
 numpadWrapper.addEventListener('touchend', e => {
     if (!isDraggingNumpad) return;
@@ -707,7 +732,6 @@ function recalculateSuggestionState() {
     if (nextNodeType === 'work') {
         btn.className   = "bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
         
-        // Light mode compatible shadow for buttons
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
              btn.classList.replace('shadow-indigo-900/50', 'shadow-indigo-600/30');
         }
@@ -717,7 +741,6 @@ function recalculateSuggestionState() {
     } else {
         btn.className   = "bg-teal-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-teal-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
         
-        // Light mode compatible shadow for buttons
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
              btn.classList.replace('shadow-teal-900/50', 'shadow-teal-600/30');
         }
@@ -803,7 +826,7 @@ function renderTimeline() {
     if (nodes.length === 0) {
         nodesWrapper.innerHTML += `
             <div class="flex items-center gap-6 opacity-50 relative z-10">
-                <div class="w-14 flex justify-center"><div class="w-3 h-3 bg-slate-600 rounded-full"></div></div>
+                <div class="w-14 flex justify-center"><div class="w-3 h-3 bg-slate-600 rounded-full z-10"></div></div>
                 <div class="text-slate-500 text-sm">Bekleniyor... Aşağıdan süre ekleyin.</div>
             </div>`;
         return;
@@ -822,18 +845,18 @@ function renderTimeline() {
         }
         
         const activeClass = node.state === 'active' ? 'active-node' : '';
-        const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500'; // Slightly adjusted for both modes
+        const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500';
         const label       = node.type === 'work' ? 'Çalışma' : 'Mola';
         const badge       = node.type === 'work' ? 'W' : 'B';
         const isLast      = index === nodes.length - 1;
         const delBtn      = isLast ? `
-            <button onclick="promptDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
+            <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>` : '';
         el.innerHTML = `
             <div class="relative flex-shrink-0 flex justify-center w-14">
                 <div class="w-14 h-14 ${shapeClass} ${bgClass} shadow-lg flex items-center justify-center z-10 ${activeClass}">
-                    <span class="text-white font-bold text-xs opacity-70">${badge}</span>
+                    <span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span>
                 </div>
             </div>
             <div class="flex items-center w-full bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50 pr-2">
@@ -937,7 +960,6 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Delete')      { promptDeleteLastNode(); e.preventDefault(); }
 });
 
-// Listen for system theme changes to re-render dynamic shadows/colors if needed
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
     renderTimeline();
     recalculateSuggestionState();
@@ -952,7 +974,6 @@ updateInputDisplay();
 manageStartButtonState();
 manageEmergencyButtonState();
 
-// Initialize Numpad Wrapper Position Correctly
 setTimeout(() => {
     setNumpadState(true);
 }, 50);
