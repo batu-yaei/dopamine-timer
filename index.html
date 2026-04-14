@@ -72,7 +72,7 @@
     </div>
 
     <!-- TIMELINE -->
-    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-[400px]">
+    <div id="timelineContainer" class="flex-1 overflow-y-auto no-scrollbar p-6 relative pb-[500px]">
         <div id="nodesWrapper" class="flex flex-col gap-6 relative z-10 min-h-full"></div>
     </div>
 
@@ -456,7 +456,6 @@ function scrollToActive() {
     setTimeout(() => {
         if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
             const activeEl = document.getElementById(`node-${nodes[activeNodeIndex].id}`);
-            // block: 'start' ile aktif ögeyi ekranın en üstüne hizalar
             if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
             timelineContainer.scrollTo({ top: 0, behavior: 'smooth' });
