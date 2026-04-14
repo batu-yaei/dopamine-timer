@@ -471,14 +471,13 @@ function addOneMinute(id, btnElement) {
     
     const node = nodes[index];
     if (!node.addedMinutes) node.addedMinutes = 0;
-    if (node.addedMinutes >= 5) return; // Maksimum 5 kez ekleme kuralı
+    if (node.addedMinutes >= 5) return; 
     
     node.addedMinutes++;
     
-    // Tıklandığında menünün hemen gitmesini engellemek ve devamlı tıklamayı sağlamak için
     node.keepWarningUntil = Date.now() + 2000;
     
-    if (btnElement) {
+    if (btnElement && node.addedMinutes < 5) {
         const textEl = btnElement.querySelector('.add-btn-text');
         if (textEl) {
             textEl.textContent = `+${node.addedMinutes} DK`;
@@ -493,7 +492,6 @@ function addOneMinute(id, btnElement) {
         node.expectedEndAt += 60000;
         node.duration += 60; 
         
-        // Ghost phase'de geçirilip de telafi edilen süreyi Work Seconds'a geri yükle
         if (node.ghostElapsedSec && node.ghostElapsedSec > 0) {
             totalWorkSeconds += node.ghostElapsedSec;
             node.ghostElapsedSec = 0;
@@ -505,6 +503,13 @@ function addOneMinute(id, btnElement) {
         
         updateActiveNodeDisplay();
         updateDisplays();
+    }
+    
+    if (node.addedMinutes >= 5) {
+        node.inWarningPhase = false;
+        node.inCooldown = false;
+        node.keepWarningUntil = 0;
+        renderTimeline();
     }
 }
 
@@ -534,7 +539,6 @@ function tick() {
                     if (activeN.expectedEndAt > Date.now()) {
                         totalWorkSeconds++;
                     } else {
-                        // Negatif süre (Ghost Phase) boyunca çalışılan ancak resmiyete dökülmemiş süre kaydı
                         if (!activeN.ghostElapsedSec) activeN.ghostElapsedSec = 0;
                         activeN.ghostElapsedSec++;
                     }
@@ -559,7 +563,7 @@ function tick() {
     while (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
         const node = nodes[activeNodeIndex];
         const exactRemainingMs = node.expectedEndAt - now;
-        const newRemaining = Math.ceil(exactRemainingMs / 1000); // Negatif sayabilmesi için min(0) kaldırıldı
+        const newRemaining = Math.ceil(exactRemainingMs / 1000); 
         
         const elapsed = node.remaining - newRemaining;
         if (elapsed > 2) didCatchUp = true;
@@ -595,7 +599,6 @@ function tick() {
             node.inCooldown = true;
         }
 
-        // Eğer 5 saniye aşıldıysa (ghost faz bittiyse) VEYA kullanıcı atla dediyse bir sonraki aşamaya geçilir
         if (exactRemainingMs <= -5000 || (exactRemainingMs <= 0 && (node.type !== 'work' || node.wasSkipped)) || (exactRemainingMs <= 0 && !shouldBeWarning)) {
             node.state = 'completed';
             node.inWarningPhase = false;
@@ -962,7 +965,6 @@ function handleAddToggle() {
             minutes = parseInt(suggestedValue, 10);
         } else return;
     } else {
-        // Eğer girilen değer tavsiye edilenden farklıysa başlangıç listesini iptal edip formüle geç
         if (suggestedValue && minutes !== parseInt(suggestedValue, 10)) {
             isSequenceBroken = true;
         }
@@ -1110,7 +1112,7 @@ function renderTimeline() {
             const showDelete = isLast && !(isRunning && node.state === 'active');
             
             const delBtn = showDelete ? `
-                <button onclick="executeDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
+                <button onclick="executeDeleteLastNode()" class="p-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>` : '';
 
@@ -1125,20 +1127,22 @@ function renderTimeline() {
                         <span class="text-white font-bold text-xs opacity-70 keep-white">${badge}</span>
                     </div>
                 </div>
-                <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border pr-2 transition-colors duration-300">
+                <div class="flex items-center w-full ${wrapperBgClass} p-4 rounded-2xl border transition-colors duration-300">
                     <div class="flex-1 flex flex-col">
-                        <div class="flex justify-between items-start mb-1 pr-2">
+                        <div class="flex justify-between items-start mb-1">
                             <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
                             <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
                         </div>
-                        <div class="flex justify-between items-end pr-2">
+                        <div class="flex justify-between items-end">
                             <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300 leading-none" id="time-${node.id}">
                                 ${formatMMSS(displaySecs)}
                             </div>
-                            ${skipBtn}
+                            <div class="flex items-center gap-2">
+                                ${skipBtn}
+                                ${delBtn}
+                            </div>
                         </div>
                     </div>
-                    ${delBtn}
                 </div>`;
         }
         nodesWrapper.appendChild(el);
