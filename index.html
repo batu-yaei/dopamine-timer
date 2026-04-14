@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#0f172a">
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f1f5f9" media="(prefers-color-scheme: light)">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Dopamine Timer">
     <link rel="manifest" href="./manifest.json">
     <link rel="apple-touch-icon" href="./icon-192.png">
@@ -13,26 +14,93 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
+        
+        :root {
+            --bg-main: #0f172a;
+            --bg-panel: #1e293b;
+            --bg-numpad: #020617;
+            --bg-numpad-btn: #1e293b;
+            --bg-numpad-btn-active: #334155;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-display: #cbd5e1;
+            --border-color: #334155;
+            --timeline-line: #334155;
+            --drag-handle: #334155;
+            --shadow-numpad: rgba(0,0,0,0.5);
+            --bg-header: rgba(15, 23, 42, 0.8);
+            --node-bg: rgba(30, 41, 59, 0.8);
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-main: #f1f5f9;
+                --bg-panel: #ffffff;
+                --bg-numpad: #ffffff;
+                --bg-numpad-btn: #f1f5f9;
+                --bg-numpad-btn-active: #e2e8f0;
+                --text-main: #0f172a;
+                --text-muted: #64748b;
+                --text-display: #334155;
+                --border-color: #e2e8f0;
+                --timeline-line: #cbd5e1;
+                --drag-handle: #cbd5e1;
+                --shadow-numpad: rgba(0,0,0,0.1);
+                --bg-header: rgba(255, 255, 255, 0.8);
+                --node-bg: rgba(255, 255, 255, 0.9);
+            }
+        }
+
         body {
             font-family: 'Space Grotesk', sans-serif;
-            background-color: #0f172a;
-            color: #f8fafc;
+            background-color: var(--bg-main);
+            color: var(--text-main);
             overscroll-behavior-y: none;
             -webkit-user-select: none;
             user-select: none;
             -webkit-touch-callout: none;
         }
+        
+        .bg-slate-900 { background-color: var(--bg-panel) !important; }
+        .bg-slate-950 { background-color: var(--bg-numpad) !important; }
+        .bg-black { background-color: var(--bg-main) !important; }
+        .text-white { color: var(--text-main) !important; }
+        .text-slate-400, .text-slate-500 { color: var(--text-muted) !important; }
+        .text-slate-300 { color: var(--text-display) !important; }
+        .border-slate-800, .border-slate-700, .border-slate-700\/50 { border-color: var(--border-color) !important; }
+        .bg-slate-900\/80 { background-color: var(--bg-header) !important; }
+        .bg-slate-800\/80 { background-color: var(--node-bg) !important; }
+        
+        /* Drag handle specific color for better visibility in light mode */
+        #dragHandle div { background-color: var(--drag-handle) !important; }
+        
+        .numpad-btn {
+            background-color: var(--bg-numpad-btn) !important;
+            color: var(--text-main) !important;
+        }
+        .numpad-btn.bg-red-900\/30 {
+            background-color: rgba(220, 38, 38, 0.1) !important;
+            color: #ef4444 !important;
+        }
+
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
         @keyframes pulse-ring {
-            0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255,255,255,0.3); }
-            70%  { transform: scale(1);    box-shadow: 0 0 0 10px rgba(255,255,255,0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+            0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(148, 163, 184, 0.4); }
+            70%  { transform: scale(1);    box-shadow: 0 0 0 10px rgba(148, 163, 184, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(148, 163, 184, 0); }
         }
-        .active-node  { animation: pulse-ring 2s infinite; border: 2px solid white; }
-        .completed-node { opacity: 0.4; filter: grayscale(100%); }
-        .numpad-btn:active { transform: scale(0.95); background-color: #334155; }
+        .active-node  { animation: pulse-ring 2s infinite; border: 2px solid var(--text-muted); }
+        .completed-node { opacity: 0.5; filter: grayscale(100%); }
+        .numpad-btn:active { transform: scale(0.95); background-color: var(--bg-numpad-btn-active) !important; }
         input, textarea { -webkit-user-select: auto; user-select: auto; }
+        
+        /* Timeline dashed line override */
+        #nodesWrapper > div.absolute { border-color: var(--timeline-line) !important; }
+        
+        /* Numpad shadow override */
+        #numpadWrapper { box-shadow: 0 -25px 50px var(--shadow-numpad) !important; }
     </style>
 </head>
 <body class="h-screen w-screen flex justify-center overflow-hidden bg-black">
@@ -299,7 +367,16 @@ function fireNotification(completedType) {
     }
 
     try {
-        new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.showNotification(title, {
+                    body: body, icon: './icon-192.png', tag: 'dopamine-timer',
+                    renotify: true, vibrate: [200, 100, 200]
+                });
+            });
+        } else {
+            new Notification(title, { body, icon: './icon-192.png', tag: 'dopamine-timer', renotify: true });
+        }
     } catch(e) { console.warn('Notification hatası:', e); }
 }
 
@@ -391,7 +468,13 @@ function manageStartButtonState() {
         topStartBtn.textContent = 'SÜREYİ BAŞLAT';
     } else if (!isRunning) {
         topStartBtn.disabled  = false;
-        topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none";
+        
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            // Light mode specific styling if needed, though emerald usually works well in both
+            topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-600/30 transition-colors active:scale-95 outline-none";
+        } else {
+            topStartBtn.className = "w-full bg-emerald-600 text-white rounded-xl py-3 font-bold shadow-lg shadow-emerald-900/50 transition-colors active:scale-95 outline-none";
+        }
         topStartBtn.textContent = 'SÜREYİ BAŞLAT';
     }
 }
@@ -623,10 +706,22 @@ function recalculateSuggestionState() {
     const ttxt  = document.getElementById('toggleAddText');
     if (nextNodeType === 'work') {
         btn.className   = "bg-indigo-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-indigo-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
+        
+        // Light mode compatible shadow for buttons
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+             btn.classList.replace('shadow-indigo-900/50', 'shadow-indigo-600/30');
+        }
+        
         shape.className = "w-4 h-4 bg-white rounded-md shadow-sm";
         ttxt.textContent = "ÇALIŞMA EKLE";
     } else {
         btn.className   = "bg-teal-600 text-white rounded-2xl py-4 text-xs font-bold shadow-lg shadow-teal-900/50 transition-transform active:scale-95 flex flex-col items-center justify-center gap-1 outline-none";
+        
+        // Light mode compatible shadow for buttons
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+             btn.classList.replace('shadow-teal-900/50', 'shadow-teal-600/30');
+        }
+        
         shape.className = "w-4 h-4 bg-white rounded-full shadow-sm";
         ttxt.textContent = "MOLA EKLE";
     }
@@ -718,14 +813,21 @@ function renderTimeline() {
         el.className = `flex items-center gap-6 transition-all duration-500 ease-in-out relative z-10 ${node.state==='completed' ? 'completed-node' : ''}`;
         el.id = `node-${node.id}`;
         const shapeClass = node.type === 'work' ? 'rounded-2xl' : 'rounded-full';
-        const bgClass    = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-900/50' : 'bg-teal-600 shadow-teal-900/50';
+        
+        let bgClass = "";
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+            bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-600/30' : 'bg-teal-600 shadow-teal-600/30';
+        } else {
+            bgClass = node.type === 'work' ? 'bg-indigo-600 shadow-indigo-900/50' : 'bg-teal-600 shadow-teal-900/50';
+        }
+        
         const activeClass = node.state === 'active' ? 'active-node' : '';
-        const colorClass  = node.type === 'work' ? 'text-indigo-400' : 'text-teal-400';
+        const colorClass  = node.type === 'work' ? 'text-indigo-500' : 'text-teal-500'; // Slightly adjusted for both modes
         const label       = node.type === 'work' ? 'Çalışma' : 'Mola';
         const badge       = node.type === 'work' ? 'W' : 'B';
         const isLast      = index === nodes.length - 1;
         const delBtn      = isLast ? `
-            <button onclick="promptDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-400 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
+            <button onclick="promptDeleteLastNode()" class="p-2 ml-2 text-slate-600 hover:text-red-500 hover:bg-slate-700/50 rounded-xl transition-all active:scale-90 outline-none">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>` : '';
         el.innerHTML = `
@@ -740,7 +842,7 @@ function renderTimeline() {
                         <span class="font-bold tracking-wide ${colorClass} uppercase text-sm">${label}</span>
                         <span class="text-xs text-slate-500 font-medium">${node.duration/60} dk</span>
                     </div>
-                    <div class="text-3xl font-bold font-mono tracking-tighter text-slate-200" id="time-${node.id}">
+                    <div class="text-3xl font-bold font-mono tracking-tighter text-slate-300" id="time-${node.id}">
                         ${formatMMSS(node.remaining)}
                     </div>
                 </div>
@@ -833,6 +935,13 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Backspace')   deleteNum();
     else if (e.key === 'Enter')       { handleAddToggle(); e.preventDefault(); }
     else if (e.key === 'Delete')      { promptDeleteLastNode(); e.preventDefault(); }
+});
+
+// Listen for system theme changes to re-render dynamic shadows/colors if needed
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+    renderTimeline();
+    recalculateSuggestionState();
+    manageStartButtonState();
 });
 
 // ═══════════════════════════════════════════════════════
