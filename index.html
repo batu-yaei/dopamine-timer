@@ -689,7 +689,9 @@ function manageStartButtonState() {
         startCont.classList.remove('hidden');
     }
 
-    if (nodes.length === 0) {
+    const hasPendingNodes = nodes.some(n => n.state === 'pending' || n.state === 'active');
+
+    if (nodes.length === 0 || !hasPendingNodes) {
         topStartBtn.disabled  = true;
         topStartBtn.className = "w-full bg-slate-700 text-slate-500 rounded-xl py-3 font-bold transition-all outline-none opacity-50 cursor-not-allowed";
         topStartBtn.textContent = 'SÜREYİ BAŞLAT';
