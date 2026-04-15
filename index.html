@@ -359,16 +359,16 @@ function playBeep(type) {
     try {
         const ctx = getAudioContext();
         if (type === 'break') {
-            [0, 0.75, 1.50, 2.25].forEach(offset => {
+            [0, 0.30, 0.60, 0.90].forEach(offset => {
                 const osc = ctx.createOscillator(), gain = ctx.createGain();
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(450, ctx.currentTime + offset);
                 gain.gain.setValueAtTime(0, ctx.currentTime + offset);
-                gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.05);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.6);
+                gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + offset + 0.03);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.25);
                 osc.connect(gain); gain.connect(ctx.destination);
                 osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch(e){} };
-                osc.start(ctx.currentTime + offset); osc.stop(ctx.currentTime + offset + 0.75);
+                osc.start(ctx.currentTime + offset); osc.stop(ctx.currentTime + offset + 0.30);
             });
         } else {
             const osc = ctx.createOscillator(), gain = ctx.createGain();
@@ -562,7 +562,9 @@ function tick() {
             if (activeNodeIndex >= 0 && activeNodeIndex < nodes.length) {
                 const activeN = nodes[activeNodeIndex];
                 if (activeN.type === 'work') {
-                    if (activeN.expectedEndAt > Date.now()) {
+                    // Eksik 1 saniye hatasını çözmek için Date.now() yerine historicalNow kullanıldı
+                    const historicalNow = now - remainderMs;
+                    if (activeN.expectedEndAt >= historicalNow) {
                         totalWorkSeconds++;
                     } else {
                         if (!activeN.ghostElapsedSec) activeN.ghostElapsedSec = 0;
@@ -575,6 +577,7 @@ function tick() {
 
     let timelineNeedsRender = false;
     let lastCompletedType = null;
+    let playAudioType = null;
     let didCatchUp = false;
     let didCooldownExpire = false;
 
@@ -594,8 +597,10 @@ function tick() {
         const elapsed = node.remaining - newRemaining;
         if (elapsed > 2) didCatchUp = true;
 
+        // Akışkan süre senkronizasyonu (Smooth Catch-up)
         if (node.visualRemaining !== undefined && node.visualRemaining > newRemaining) {
-            node.visualRemaining -= 1;
+            const gap = node.visualRemaining - newRemaining;
+            node.visualRemaining -= Math.ceil(gap / 2);
             if (node.visualRemaining < newRemaining) node.visualRemaining = newRemaining;
         } else {
             node.visualRemaining = newRemaining;
@@ -638,6 +643,8 @@ function tick() {
             node.state = 'completed';
             node.inWarningPhase = false;
             node.inCooldown = false;
+            node.visualRemaining = newRemaining < 0 ? newRemaining : 0; 
+            node.remaining = newRemaining < 0 ? newRemaining : 0;
             timelineNeedsRender = true;
             lastCompletedType = node.type;
             
@@ -651,7 +658,10 @@ function tick() {
                 if (overflowMs > 0) {
                     nodes[activeNodeIndex].visualRemaining = nodes[activeNodeIndex].duration; 
                 }
-                fireNotification(lastCompletedType);
+                if (!node.wasSkipped) {
+                    fireNotification(lastCompletedType);
+                    playAudioType = lastCompletedType;
+                }
             } else {
                 isRunning = false;
                 timerWorker.postMessage('stop');
@@ -659,7 +669,10 @@ function tick() {
                 updateExtensionBadge('', 'work');
                 manageStartButtonState();
                 manageEmergencyButtonState();
-                fireNotification(lastCompletedType);
+                if (!node.wasSkipped) {
+                    fireNotification(lastCompletedType);
+                    playAudioType = lastCompletedType;
+                }
                 break;
             }
         } else {
@@ -667,8 +680,8 @@ function tick() {
         }
     }
 
-    if (lastCompletedType) {
-        playBeep(lastCompletedType);
+    if (playAudioType) {
+        playBeep(playAudioType);
     }
 
     if (timelineNeedsRender) {
@@ -1126,7 +1139,8 @@ function renderTimeline() {
         const badge = (node.type === 'work' ? 'W' : 'B') + badgeCount;
 
         if (isWarning) {
-            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            const rawSecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            const displaySecs = Math.max(0, rawSecs);
             
             let nextDisplay = (node.addedMinutes || 0) + 1;
             if (nextDisplay > 5) nextDisplay = 5;
@@ -1165,7 +1179,8 @@ function renderTimeline() {
             const skipBtnClass = isLight ? "px-3 py-1.5 bg-slate-300 text-slate-800 hover:bg-slate-400 text-xs font-bold rounded-lg transition-all active:scale-95 outline-none whitespace-nowrap" : "px-3 py-1.5 bg-slate-200 text-slate-900 hover:bg-white text-xs font-bold rounded-lg transition-all active:scale-95 outline-none shadow-md whitespace-nowrap";
             const skipBtn = (node.state === 'active') ? `<button onclick="skipActiveNode()" class="${skipBtnClass}">ATLA</button>` : '';
 
-            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            const rawSecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            const displaySecs = Math.max(0, rawSecs);
 
             el.innerHTML = `
                 <div class="relative flex-shrink-0 flex justify-center w-14">
@@ -1200,7 +1215,8 @@ function updateActiveNodeDisplay() {
         const node = nodes[activeNodeIndex];
         const el = document.getElementById(`time-${node.id}`);
         if (el) {
-            const displaySecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            const rawSecs = node.visualRemaining !== undefined ? node.visualRemaining : node.remaining;
+            const displaySecs = Math.max(0, rawSecs);
             el.textContent = formatMMSS(displaySecs);
         }
     }
